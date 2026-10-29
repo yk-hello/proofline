@@ -1,0 +1,45 @@
+name: Release
+# Push a tag such as v0.4.0 to build the Windows installers from the public
+# source and attach them to a DRAFT pre-release. Nothing is public until the
+# owner reviews the draft on the Releases page and clicks "Publish".
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Tag must match package.json version
+        shell: bash
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME}" != "v${v}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${v}"; exit 1
+          fi
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - run: npm run test:core
+      - run: npm run test:integration
+      - run: npm run desktop:pack
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum *.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Draft pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release/*.exe release/SHA256SUMS.txt \
+            --draft --prerelease \
+            --title "Proofline ${GITHUB_REF_NAME#v}" \
+            --notes-file .github/release-notes.md

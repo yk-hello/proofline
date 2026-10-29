@@ -3,7 +3,7 @@
 **标出 AI 写的文档哪里要改，一键交给本机 AI，逐处审阅后才写回。**
 Mark up AI-written Markdown, hand the fixes to your local AI CLI, and review every change before it touches your file.
 
-[English](#english) · [功能一览](#功能一览) · [平台支持](#平台支持-windows--macos) · [没检测到 CLI？](#没检测到我的-cli怎么办) · [参与共建](CONTRIBUTING.md) · [许可](#许可--license)
+[下载](../../releases) · [English](#english) · [功能一览](#功能一览) · [平台支持](#平台支持-windows--macos) · [没检测到 CLI？](#没检测到我的-cli怎么办) · [参与共建](CONTRIBUTING.md) · [许可](#许可--license)
 
 > 当前版本 0.4.0（原名 Redline）。**Windows 已可正式使用；macOS 代码已完成，但尚未在真机验证，欢迎有 Mac 的朋友帮忙测试。**
 
@@ -103,6 +103,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 
 ### 安装（Windows）
 
+- **下载**：到 [Releases 页面](../../releases)下载 `Proofline-…-Setup-x64.exe`（安装版）或 `…-Windows-x64.exe`（便携版）。安装包**没有代码签名**，第一次运行时 Windows 会提示「已保护你的电脑」，点「更多信息 → 仍要运行」即可；`SHA256SUMS.txt` 可用来核对文件。
 - 安装向导默认勾选：设为 Markdown / TXT 的默认打开方式、创建桌面快捷方式、固定到任务栏。
 - 首次启动有设置向导：检测默认应用和任务栏状态，列出本机能用的命令行 AI。Windows 11 不允许程序自己抢默认应用或固定任务栏，向导会带你点一下完成。
 - 另有便携版：不用安装，数据放在程序旁边。

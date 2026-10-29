@@ -119,7 +119,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 | 项目 | Windows 10 / 11 (x64) | macOS (Apple Silicon / Intel) |
 | --- | --- | --- |
 | 安装包 | ✅ 安装版 + 便携版 | ⏳ 尚未发布（代码已完成，未签名） |
-| 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | 🔶 共用代码；模拟测试通过，未在真机运行 |
+| 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | 🔶 一位测试者在 Apple Silicon 上用本机打的 `.app` 走通了核心流程（见下）；其余功能共用代码，未逐项真机验证 |
 | 自动查找命令行 AI | ✅ 已验证（PATH、fnm、npm 全局、启动脚本） | 🔶 已实现登录 shell PATH、Homebrew、nvm、fnm、Volta、Bun、pnpm；未在真机验证 |
 | 安装、升级、卸载后保留数据 | ✅ 用真实安装包实测通过 | ⏳ 未测试 |
 | 默认应用、任务栏 / 程序坞 | ✅ 安装时注册，首次启动有向导 | ⏳ 未测试 |
@@ -132,6 +132,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 | Codex CLI 0.165.0 | ✅ 通过 | Windows 11 |
 | Gemini CLI 0.66.0 | ✅ 通过 | Windows 11 |
 | Claude Code 2.1.312 | ✅ 通过 | Linux（开发环境） |
+| Hermes CLI（自定义命令） | ✅ 通过：改副本 → 显示差异 → 接受后写回，审阅前原文件不变 | macOS arm64，本机打包的 `.app`（测试者本机构建，未签名） |
 | Qwen Code、Kimi CLI、opencode、Cursor CLI、Copilot CLI、Aider | 🔶 模拟测试通过，待真实账号验证 | — |
 | iFlow CLI、CodeBuddy Code、Qoder CLI | 🔶 实验适配，模拟测试通过，待真实账号验证 | — |
 

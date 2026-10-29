@@ -4,8 +4,8 @@
 - **`Proofline-*-Windows-x64.exe`** — Windows 便携版，不用安装 / portable, no install
 - `SHA256SUMS.txt` — 校验码 / checksums (`certutil -hashfile <file> SHA256`)
 
-**macOS：暂未提供**（代码已完成，尚未在真机验证，欢迎在 Issues 里帮忙测试）。
-macOS is not available yet; the code is written but not verified on real hardware.
+**macOS：暂未提供安装包。** 一位测试者在 Apple Silicon 上用本机打的包走通了核心流程（标记 → 交给 AI → 审阅 → 写回），其余仍在测试，欢迎在 Issues 里提交测试报告。
+No macOS installer yet. One tester ran the core flow on Apple Silicon with a locally built app; the rest is still being tested — test reports welcome.
 
 ## 首次运行 / First run
 

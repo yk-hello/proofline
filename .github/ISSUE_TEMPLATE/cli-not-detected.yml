@@ -1,0 +1,25 @@
+name: CLI not detected or not working
+description: Proofline does not find or cannot run a command-line AI on your computer
+labels: [cli]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste tokens, API keys or private document text. 请勿粘贴密钥、token 或私人文档内容。
+  - type: input
+    id: cli
+    attributes: { label: CLI and version / 工具和版本, placeholder: "Claude Code 2.1.x" }
+    validations: { required: true }
+  - type: input
+    id: system
+    attributes: { label: System / 系统, placeholder: "Windows 11 x64, Proofline 0.4.0" }
+    validations: { required: true }
+  - type: textarea
+    id: install
+    attributes: { label: How the CLI is installed / 安装方式, description: "npm, fnm, nvm, Homebrew, installer, launcher script…" }
+  - type: textarea
+    id: what
+    attributes: { label: What happens / 现象, description: "Not detected, connection test fails, edit fails… Include the message Proofline shows." }
+    validations: { required: true }
+  - type: textarea
+    id: agent
+    attributes: { label: What your AI found / 你的 AI 查到的路径和命令模板, description: "See the README section 'CLI not detected'." }

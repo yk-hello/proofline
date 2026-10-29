@@ -1,0 +1,14 @@
+# Source is LF everywhere so diffs show real changes, not line endings.
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.nsh  text eol=lf
+*.html text eol=lf
+# Fixtures keep their exact bytes (some test CRLF input on purpose).
+test-fixtures/** -text
+*.bat  text eol=crlf
+*.ps1  text eol=crlf

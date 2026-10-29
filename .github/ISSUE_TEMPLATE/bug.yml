@@ -1,0 +1,15 @@
+name: Bug report
+description: Something in Proofline does not work as expected
+body:
+  - type: input
+    id: system
+    attributes: { label: System and Proofline version / 系统与版本 }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Steps / 步骤 }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Expected and actual / 预期与实际 }
+    validations: { required: true }

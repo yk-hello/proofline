@@ -1,0 +1,98 @@
+import { TYPE_LABELS } from '../../electron/redline-core.mjs';
+
+const STRINGS = {
+  zh: {
+    markActions: '标记操作', markType: '标记类型', close: '关闭', removeMark: '移除标记', sendThis: '只发这一条',
+    instructionLabel: '给 AI 的要求', noteLabel: '批注内容', aiAnswer: 'AI 的回答',
+    'placeholder.fix': '哪里不对、应该怎么改？可以留空', 'placeholder.expand': '展开哪些方面？可以留空', 'placeholder.delete': '可以说明删除原因，留空也行',
+    'placeholder.ask': '你想问 AI 什么？', 'placeholder.note': '写下你的想法（只给自己看）',
+    'typeHint.fix': 'AI 指令：让 AI 修改这里', 'typeHint.expand': 'AI 指令：让 AI 展开写', 'typeHint.delete': 'AI 指令：让 AI 删除',
+    'typeHint.ask': 'AI 指令：向 AI 提问，不改文档', 'typeHint.highlight': '个人标记：只给自己看，不发给 AI', 'typeHint.underline': '个人标记：只给自己看，不发给 AI',
+    'typeHint.note': '个人批注：只给自己看，不发给 AI',
+    redlines: '指令', marks: '标记', contents: '目录', files: '文件',
+    redlineEmpty: '选中正文，选「修改 / 展开 / 删除 / 提问」，就能给 AI 下达修改指令。',
+    marksEmpty: '个人标记只给自己看，不会发给 AI。选中正文后选「高亮 / 划线 / 批注」。',
+    open: '待处理', sent: '已发送', resolved: '已处理', unchanged: '未改动', answered: '已回答', question: 'AI 有疑问',
+    aiQuestion: 'AI 的疑问', questions: 'AI 的疑问', extraNote: '补充说明（可选）', extraNoteHint: '会写进任务里，例如全文的读者、语气、术语要求，或对 AI 上次疑问的回答。',
+    questionsPending: (n) => `AI 对 ${n} 条指令有疑问。在右侧点开该指令，补充要求后重新发送。`,
+    sendToAi: '交给 AI 修改',
+    openCount: (n) => `${n} 条待处理`, nothingToSend: '没有待处理的 AI 指令',
+    copied: '已复制', copiedPrompt: '提示词已复制。发给 AI，拿到回复后点「粘贴 AI 回复」', copyFailed: '复制失败', undo: '撤销', removed: '已移除标记', all: '全部',
+    filterHighlight: '高亮', filterUnderline: '划线', filterNote: '批注', filterBookmark: '书签',
+    bookmarkHere: '记住当前位置', findMarks: '查找标记',
+    // Send dialog
+    sendTitle: '交给 AI 修改', chooseAgent: '选择 AI', scope: '任务工作目录',
+    scopeFile: '只改这篇文档', scopeFileHint: 'AI 在一份副本上修改，改完由你逐处审阅后再写回。副本降低误改原文的风险，CLI 自身权限仍由该工具管理。',
+    scopeFolder: '文档所在文件夹', scopeFolderHint: 'AI 会先改动磁盘原文件，再进入审阅；其他文件的改动不会自动撤销。',
+    groupCli: '本机 AI（运行后进入审阅）', noCli: '本机没有检测到能直接运行的命令行 AI。安装 Claude Code、Codex CLI、Gemini CLI 等以后点右上角重新检测，或在设置里添加自定义命令。', groupCustom: '自定义',
+    notInstalled: '未检测到', detecting: '正在检测本机的 AI 工具…', start: '开始', cancel: '取消', settings: '设置',
+    desktopOnly: '一键运行本机 AI 需要桌面版', tasksSummary: (n) => `将发送 ${n} 条 AI 指令`,
+    runTitle: (name) => `${name} 正在修改`, running: '运行中', runDone: 'AI 已完成，正在打开审阅', runFailed: 'AI 运行失败', stop: '停止',
+    runOutput: '运行输出', noOutput: '等待输出…', exitCode: (code) => `退出代码 ${code}`,
+    // Paste
+    pasteTitle: '粘贴 AI 回复', pasteHint: '把 AI 的完整回复粘贴到这里。支持 Proofline 格式的分段回复，也支持修改后的全文。',
+    pastePlaceholder: '在这里粘贴（Ctrl V）', pasteFromClipboard: '从剪贴板读取', review: '审阅修改',
+    pasteNothing: '没有识别到修改内容。请确认粘贴的是 AI 的完整回复。', pasteMissing: (list) => `有 ${list} 号指令的段落找不到，已跳过`,
+    // Review
+    reviewTitle: '审阅 AI 修改', reviewFrom: (source) => `来源：${source}`, acceptAll: '全部接受', rejectAll: '全部驳回', apply: '完成审阅',
+    accept: '接受', reject: '驳回', accepted: '已接受', rejected: '已驳回', unchangedBlocks: (n) => `${n} 段未改动`, showWords: '逐字对比', showRendered: '排版视图',
+    noChanges: 'AI 没有修改文档内容。', answers: 'AI 的回答', changeCount: (n) => `${n} 处修改`, decided: (a, b) => `${a}/${b} 已决定`,
+    reviewApplied: '已写入修改', reviewDiscarded: '已放弃这次修改', discard: '放弃全部', externalSource: '外部程序', pastedSource: '粘贴的回复', addresses: '处理',
+    // Agent settings
+    agentSettings: 'AI 工具设置', customAgents: '自定义命令', addCustom: '添加自定义命令', commandTemplate: '命令模板',
+    templateHint: '可用占位符：{prompt} 简短指令，{task} 任务文件路径，{file} 文档路径，{dir} 工作目录', name: '名称', remove: '删除', save: '保存',
+    mcpTitle: 'MCP 接入', mcpHint: '在 Antigravity、Trae、Cursor、Claude 桌面版等支持 MCP 的工具里添加下面的配置，它们就能直接读取 AI 指令。',
+    redetect: '重新检测', path: '路径', override: '覆盖参数', defaultArgs: '默认参数',
+    editHiddenMarks: '编辑时标记暂时隐藏', copy: '复制', exportMarks: '导出标记', undoMark: '撤销标记操作', redoMark: '重做标记操作', hideRail: '收起侧栏',
+    orphaned: '原文已变化，找不到这段文字', resend: '重新发送', personal: '个人',
+  },
+  en: {
+    markActions: 'Mark actions', markType: 'Mark type', close: 'Close', removeMark: 'Remove mark', sendThis: 'Send just this',
+    instructionLabel: 'Instruction for AI', noteLabel: 'Note', aiAnswer: 'AI answer',
+    'placeholder.fix': 'What is wrong and how should it change? Optional', 'placeholder.expand': 'What should be expanded? Optional', 'placeholder.delete': 'Why remove it? Optional',
+    'placeholder.ask': 'What do you want to ask?', 'placeholder.note': 'Your thoughts (private)',
+    'typeHint.fix': 'Instruction: ask AI to fix this', 'typeHint.expand': 'Instruction: ask AI to expand this', 'typeHint.delete': 'Instruction: ask AI to remove this',
+    'typeHint.ask': 'Instruction: ask AI a question, no edit', 'typeHint.highlight': 'Personal mark: never sent to AI', 'typeHint.underline': 'Personal mark: never sent to AI',
+    'typeHint.note': 'Personal note: never sent to AI',
+    redlines: 'Instructions', marks: 'Marks', contents: 'Contents', files: 'Files',
+    redlineEmpty: 'Select text and choose Fix, Expand, Delete or Ask to give the AI an instruction.',
+    marksEmpty: 'Personal marks are for you and never go to the AI. Select text and choose Highlight, Underline or Note.',
+    open: 'Open', sent: 'Sent', resolved: 'Resolved', unchanged: 'Unchanged', answered: 'Answered', question: 'AI question',
+    aiQuestion: 'AI question', questions: 'AI questions', extraNote: 'Additional notes (optional)', extraNoteHint: 'Added to the task: who the document is for, tone, terms, or your answer to an earlier AI question.',
+    questionsPending: (n) => `The AI has questions about ${n} instruction${n === 1 ? '' : 's'}. Open it on the right, add detail and send again.`,
+    sendToAi: 'Send to AI',
+    openCount: (n) => `${n} open`, nothingToSend: 'No open AI instructions',
+    copied: 'Copied', copiedPrompt: 'Prompt copied. Send it to your AI, then choose Paste AI reply', copyFailed: 'Copy failed', undo: 'Undo', removed: 'Mark removed', all: 'All',
+    filterHighlight: 'Highlights', filterUnderline: 'Underlines', filterNote: 'Notes', filterBookmark: 'Bookmarks',
+    bookmarkHere: 'Bookmark this position', findMarks: 'Find marks',
+    sendTitle: 'Send to AI', chooseAgent: 'Choose an AI', scope: 'Task working directory',
+    scopeFile: 'This document only', scopeFileHint: 'The AI edits a copy. You review every change before it is written back. The CLI still controls its own filesystem permissions.',
+    scopeFolder: 'The document folder', scopeFolderHint: 'The AI changes the source on disk before review. Changes to other files cannot be rolled back here.',
+    groupCli: 'AI on this computer (review after run)', noCli: 'No command-line AI that runs here was found. Install Claude Code, Codex CLI, Gemini CLI or similar and check again, or add a custom command in settings.', groupCustom: 'Custom',
+    notInstalled: 'Not found', detecting: 'Looking for AI tools on this computer…', start: 'Start', cancel: 'Cancel', settings: 'Settings',
+    desktopOnly: 'Running local AI tools needs the desktop app', tasksSummary: (n) => `${n} AI instruction${n === 1 ? '' : 's'} will be sent`,
+    runTitle: (name) => `${name} is editing`, running: 'Running', runDone: 'AI finished. Opening review', runFailed: 'The AI run failed', stop: 'Stop',
+    runOutput: 'Output', noOutput: 'Waiting for output…', exitCode: (code) => `Exit code ${code}`,
+    pasteTitle: 'Paste AI reply', pasteHint: 'Paste the full reply. Proofline-formatted blocks and a fully revised document both work.',
+    pastePlaceholder: 'Paste here (Ctrl V)', pasteFromClipboard: 'Read clipboard', review: 'Review changes',
+    pasteNothing: 'No changes recognized. Make sure you pasted the complete reply.', pasteMissing: (list) => `Paragraphs for #${list} were not found and were skipped`,
+    reviewTitle: 'Review AI changes', reviewFrom: (source) => `From: ${source}`, acceptAll: 'Accept all', rejectAll: 'Reject all', apply: 'Finish review',
+    accept: 'Accept', reject: 'Reject', accepted: 'Accepted', rejected: 'Rejected', unchangedBlocks: (n) => `${n} unchanged paragraph${n === 1 ? '' : 's'}`, showWords: 'Word diff', showRendered: 'Formatted',
+    noChanges: 'The AI did not change the document.', answers: 'AI answers', changeCount: (n) => `${n} change${n === 1 ? '' : 's'}`, decided: (a, b) => `${a}/${b} decided`,
+    reviewApplied: 'Changes written', reviewDiscarded: 'Changes discarded', discard: 'Discard all', externalSource: 'Another program', pastedSource: 'Pasted reply', addresses: 'Addresses',
+    agentSettings: 'AI tools', customAgents: 'Custom commands', addCustom: 'Add custom command', commandTemplate: 'Command template',
+    templateHint: 'Placeholders: {prompt} short instruction, {task} task file path, {file} document path, {dir} working folder', name: 'Name', remove: 'Remove', save: 'Save',
+    mcpTitle: 'MCP', mcpHint: 'Add this configuration to Antigravity, Trae, Cursor, Claude Desktop or any MCP client so it can read AI instructions directly.',
+    redetect: 'Detect again', path: 'Path', override: 'Override arguments', defaultArgs: 'Default arguments',
+    editHiddenMarks: 'Marks are hidden while editing', copy: 'Copy', exportMarks: 'Export marks', undoMark: 'Undo mark change', redoMark: 'Redo mark change', hideRail: 'Hide panel',
+    orphaned: 'Passage changed; location unavailable', resend: 'Send again', personal: 'Personal',
+  },
+};
+
+export function t(language, key, ...args) {
+  const value = (STRINGS[language] || STRINGS.zh)[key] ?? STRINGS.zh[key] ?? key;
+  return typeof value === 'function' ? value(...args) : value;
+}
+
+export function typeLabel(language, type) { return (TYPE_LABELS[language] || TYPE_LABELS.zh)[type] || type; }
+export function modifierKey() { return globalThis.window?.mengxDesktop?.platform === 'darwin' ? '⌘' : 'Ctrl'; }

@@ -1,0 +1,57 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:core
+      - run: npm run test:markdown
+      - run: npm run test:math
+      - run: npm run test:model
+      - run: npm run test:integration
+      - run: npm run test:adapters
+      - run: npm run test:mac-contracts
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:redline
+      - run: xvfb-run -a npm run test:redline-desktop
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:core
+      - run: npm run test:integration
+      - run: npm run desktop:pack
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: proofline-windows-test-build
+          path: release/*.exe
+          retention-days: 7
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:mac-contracts
+      - run: npm run build
+      - run: npm run test:mac-host

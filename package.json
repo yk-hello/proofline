@@ -1,0 +1,163 @@
+{
+  "name": "proofline",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.4.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "description": "Proofline — review AI-written documents: read, mark, hand to your AI, review every change",
+  "author": "Zhang YK <hello.yk.zhang@gmail.com>",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "desktop": "npm run build && electron .",
+    "desktop:dev": "node scripts/desktop-dev.mjs",
+    "desktop:pack": "npm run build && electron-builder --win --x64 --config.electronDist=node_modules/electron/dist",
+    "test:desktop": "npm run build && node scripts/desktop-smoke.mjs",
+    "preview": "vite preview",
+    "reader": "node scripts/reader-cli.mjs",
+    "test:model": "node scripts/document-model.test.mjs",
+    "test:math": "node scripts/math-matches.test.mjs",
+    "test:markdown": "node scripts/markdown-boundaries.test.mjs",
+    "test:continuity": "npm run build && node scripts/reader-continuity-smoke.mjs",
+    "test:surface": "npm run build && node scripts/reader-surface-smoke.mjs",
+    "test:windows": "npm run build && node scripts/reader-window-smoke.mjs",
+    "test:pdf": "npm run build && node scripts/pdf-smoke.mjs",
+    "test:reader": "node scripts/reader-smoke.mjs",
+    "test:api": "node scripts/reader-api-smoke.mjs",
+    "test:long": "node scripts/reader-long-smoke.mjs",
+    "test:core": "node scripts/redline-core.test.mjs",
+    "test:redline": "node scripts/redline-smoke.mjs",
+    "desktop:pack:mac": "npm run build && electron-builder --mac --universal",
+    "test:integration": "node scripts/agents-storage.test.mjs",
+    "test:adapters": "node scripts/cli-adapters.test.mjs",
+    "test:redline-desktop": "node scripts/redline-desktop.test.mjs",
+    "test:mac-contracts": "node scripts/mac-contracts.test.mjs",
+    "test:mac-host": "node scripts/mac-verify.mjs",
+    "test:probe": "node scripts/cli-probe.test.mjs",
+    "test:local-cli": "node scripts/local-cli-discovery.mjs"
+  },
+  "build": {
+    "appId": "app.proofline.desktop",
+    "productName": "Proofline",
+    "afterPack": "scripts/after-pack.cjs",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/redline.ico",
+      "build/icon.png",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "signAndEditExecutable": false,
+      "icon": "build/redline.ico",
+      "artifactName": "Proofline-${version}-Windows-${arch}.${ext}"
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    },
+    "nsis": {
+      "guid": "7b892519-f3a7-5b4b-b934-f61f6df00264",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": false,
+      "installerHeader": "build/installer-header.bmp",
+      "installerSidebar": "build/installer-sidebar.bmp",
+      "uninstallerSidebar": "build/installer-sidebar.bmp",
+      "language": 2052,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/redline.ico",
+      "uninstallerIcon": "build/redline.ico",
+      "include": "build/installer.nsh",
+      "artifactName": "Proofline-${version}-Setup-${arch}.${ext}"
+    },
+    "asarUnpack": [
+      "electron/redline-core.mjs"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "artifactName": "Proofline-${version}-mac-${arch}.${ext}",
+      "identity": null,
+      "hardenedRuntime": false,
+      "fileAssociations": [
+        {
+          "ext": [
+            "md",
+            "markdown",
+            "mdown",
+            "mkd"
+          ],
+          "name": "Markdown",
+          "role": "Editor"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@fontsource-variable/noto-sans-sc": "^5.3.0",
+    "@fontsource/inter-tight": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@milkdown/crepe": "7.22.3",
+    "@milkdown/kit": "7.22.3",
+    "@tanstack/react-virtual": "^3.14.13",
+    "buffer": "^6.0.3",
+    "diff": "^8.0.4",
+    "dompurify": "^3.2.6",
+    "highlight.js": "^11.12.0",
+    "html-to-pdfmake": "^2.5.35",
+    "html2pdf.js": "^0.14.0",
+    "katex": "^0.19.0",
+    "lucide-react": "^0.468.0",
+    "mammoth": "^1.13.0",
+    "marked": "^15.0.7",
+    "marked-definition-lists": "^1.0.1",
+    "marked-footnote": "^1.4.0",
+    "mathjax-full": "^3.2.1",
+    "mermaid": "^12.1.0",
+    "pdfkit": "^0.20.2",
+    "pdfmake": "^0.3.11",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "svg-to-pdfkit": "^0.1.8",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^17.13.0",
+    "pngjs": "^7.0.0",
+    "vite": "^6.0.7"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+.env*
+dist/
+release*/
+test-fixtures/results/
+test-fixtures/docx-build/
+test-fixtures/*.png
+test-fixtures/*.pdf
+*.log
+.vite/
+_sync/
+.redline-data/
+ProoflineData/

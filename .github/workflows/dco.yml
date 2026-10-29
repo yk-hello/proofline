@@ -1,0 +1,26 @@
+name: DCO
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Every commit has a Signed-off-by line
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for commit in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author=$(git log -1 --format='%ae' "$commit")
+            if ! git log -1 --format='%B' "$commit" | grep -qi "^Signed-off-by: .*<$author>"; then
+              echo "::error::Commit $(git log -1 --format='%h %s' "$commit") has no Signed-off-by line matching its author. Use git commit -s (git commit --amend -s, or git rebase --signoff for several)."
+              missing=1
+            fi
+          done
+          exit $missing

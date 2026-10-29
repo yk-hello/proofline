@@ -1,0 +1,30 @@
+name: macOS test report / Mac 测试报告
+description: Tell us how Proofline runs on your Mac (it has not been verified on real Macs yet)
+labels: [macos]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for testing on a Mac. Steps are in docs/MAC_VALIDATION.md. 感谢在 Mac 上帮忙测试，步骤见 docs/MAC_VALIDATION.md。
+  - type: dropdown
+    id: chip
+    attributes: { label: Chip / 芯片, options: [Apple Silicon (M1–M4 or later), Intel] }
+    validations: { required: true }
+  - type: input
+    id: macos
+    attributes: { label: macOS version / 系统版本, placeholder: "macOS 15.4" }
+    validations: { required: true }
+  - type: textarea
+    id: host
+    attributes: { label: Output of npm run test:mac-host / 测试输出, render: shell }
+  - type: checkboxes
+    id: manual
+    attributes:
+      label: What worked in npm run desktop / 手动试用结果
+      options:
+        - label: Opening a Markdown file / 打开 Markdown
+        - label: Marking text and the right-click menu / 标记与右键菜单
+        - label: Send to AI found my CLI / 交给 AI 时找到了我的 CLI
+        - label: Review and write back / 审阅并写回
+  - type: textarea
+    id: notes
+    attributes: { label: Problems or notes / 问题或说明 }

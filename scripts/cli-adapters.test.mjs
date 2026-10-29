@@ -106,3 +106,11 @@ const lifecycleResults = await Promise.all([lifecycle({timeoutMinutes:2,cancelOn
 const report = {ok:true,evidence:'simulated programs; no vendor services called',matrix,lifecycle:lifecycleResults,checks:['exact-flags','no-prompt-echo-success','credentials-redaction','startup-lock','missing-launcher','missing-storage-migration','login-network-quota-permission-errors'],root};
 await writeFile(path.join(root,'report.json'),JSON.stringify(report,null,2));
 console.log(JSON.stringify(report));
+
+// A successful run must not be labelled as a failure because of words or paths in its output.
+assert.equal(diagnose('done\n/Users/x/scratch/proofline-mac-proxy-check/a.md updated', { code: 0 }), null);
+assert.equal(diagnose('edited the section about network and TLS certificate setup', { code: 0 }), null);
+// ...and a path alone must not turn a real failure into a network error.
+assert.equal(diagnose('error in /Users/x/proxy-check/a.md', { code: 1 }).code, 'cli-exit');
+assert.equal(diagnose('error in /Users/x/proxy-check/a.md: fetch failed', { code: 1 }).code, 'network');
+console.log('diagnose false-positive guards ok');

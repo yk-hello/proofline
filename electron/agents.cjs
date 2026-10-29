@@ -250,7 +250,10 @@ function connectionArgs(item) {
 }
 
 function diagnose(output, { timedOut = false, code = null, spawnError = false } = {}) {
+  // File paths in the log (for example a folder called "proxy-check") are not evidence of a failure.
+  output = String(output || '').replace(/(?:[A-Za-z]:)?[\\/][^\s'"`)]*[\\/][^\s'"`)]*/g, ' <path> ');
   if (/must specify.*(?:GEMINI_API_KEY|GOOGLE_API_KEY)|(?:GEMINI_API_KEY|GOOGLE_API_KEY).*not set|select.*auth.*method|please.*set.*auth/i.test(output)) return { code: 'login-required', message: 'Gemini CLI 当前登录方式缺少 API 环境变量。打开终端运行 gemini，选择 Google 登录或配置 API key，再重新测试；不要把密钥填进任务或日志。' };
+  if (code === 0 && !timedOut && !spawnError) return null; // a clean exit is not a failure, whatever words the output contains
   if (timedOut) return { code: 'timeout', message: '任务超过所设时限。检查日志后可重新发送，或在设置里延长时限。' };
   if (spawnError) return { code: 'launch-failed', message: '进程未能启动。检查可执行路径、Node 环境和文件权限。' };
   if (/not logged|not authenticated|authentication required|login required|please (?:log|sign) in|401|unauthorized/i.test(output)) return { code: 'login-required', message: 'CLI 尚未登录。点击“打开终端登录”，完成后重新检测。桌面应用的登录不会自动等同于 CLI 登录。' };

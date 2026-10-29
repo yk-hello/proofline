@@ -3,7 +3,7 @@
 **标出 AI 写的文档哪里要改，一键交给本机 AI，逐处审阅后才写回。**
 Mark up AI-written Markdown, hand the fixes to your local AI CLI, and review every change before it touches your file.
 
-[English](#english) · [功能一览](#功能一览) · [平台支持](#平台支持-windows--macos) · [没检测到 CLI？](#没检测到我的-cli怎么办) · [参与共建](CONTRIBUTING.md) · [许可](#许可--license)
+[下载](../../releases) · [English](#english) · [功能一览](#功能一览) · [平台支持](#平台支持-windows--macos) · [没检测到 CLI？](#没检测到我的-cli怎么办) · [参与共建](CONTRIBUTING.md) · [许可](#许可--license)
 
 > 当前版本 0.4.0（原名 Redline）。**Windows 已可正式使用；macOS 代码已完成，但尚未在真机验证，欢迎有 Mac 的朋友帮忙测试。**
 
@@ -103,6 +103,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 
 ### 安装（Windows）
 
+- **下载**：到 [Releases 页面](../../releases)下载 `Proofline-…-Setup-x64.exe`（安装版）或 `…-Windows-x64.exe`（便携版）。安装包**没有代码签名**，第一次运行时 Windows 会提示「已保护你的电脑」，点「更多信息 → 仍要运行」即可；`SHA256SUMS.txt` 可用来核对文件。
 - 安装向导默认勾选：设为 Markdown / TXT 的默认打开方式、创建桌面快捷方式、固定到任务栏。
 - 首次启动有设置向导：检测默认应用和任务栏状态，列出本机能用的命令行 AI。Windows 11 不允许程序自己抢默认应用或固定任务栏，向导会带你点一下完成。
 - 另有便携版：不用安装，数据放在程序旁边。
@@ -118,7 +119,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 | 项目 | Windows 10 / 11 (x64) | macOS (Apple Silicon / Intel) |
 | --- | --- | --- |
 | 安装包 | ✅ 安装版 + 便携版 | ⏳ 尚未发布（代码已完成，未签名） |
-| 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | 🔶 共用代码；模拟测试通过，未在真机运行 |
+| 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | 🔶 一位测试者在 Apple Silicon 上用本机打的 `.app` 走通了核心流程（见下）；其余功能共用代码，未逐项真机验证 |
 | 自动查找命令行 AI | ✅ 已验证（PATH、fnm、npm 全局、启动脚本） | 🔶 已实现登录 shell PATH、Homebrew、nvm、fnm、Volta、Bun、pnpm；未在真机验证 |
 | 安装、升级、卸载后保留数据 | ✅ 用真实安装包实测通过 | ⏳ 未测试 |
 | 默认应用、任务栏 / 程序坞 | ✅ 安装时注册，首次启动有向导 | ⏳ 未测试 |
@@ -131,6 +132,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 | Codex CLI 0.165.0 | ✅ 通过 | Windows 11 |
 | Gemini CLI 0.66.0 | ✅ 通过 | Windows 11 |
 | Claude Code 2.1.312 | ✅ 通过 | Linux（开发环境） |
+| Hermes CLI（自定义命令） | ✅ 通过：改副本 → 显示差异 → 接受后写回，审阅前原文件不变 | macOS arm64，本机打包的 `.app`（测试者本机构建，未签名） |
 | Qwen Code、Kimi CLI、opencode、Cursor CLI、Copilot CLI、Aider | 🔶 模拟测试通过，待真实账号验证 | — |
 | iFlow CLI、CodeBuddy Code、Qoder CLI | 🔶 实验适配，模拟测试通过，待真实账号验证 | — |
 

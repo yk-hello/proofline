@@ -61,3 +61,28 @@ jobs:
       - run: npm run test:mac-contracts
       - run: npm run build
       - run: npm run test:mac-host
+  # Unsigned, unverified macOS test package built from the public source.
+  # Not a required check and never attached to a release: for testers only.
+  mac-package:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - run: npm run desktop:pack:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Checksums
+        run: cd release && shasum -a 256 *.dmg *.zip | tee SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: proofline-mac-test-build-UNSIGNED
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/SHA256SUMS.txt
+          retention-days: 7

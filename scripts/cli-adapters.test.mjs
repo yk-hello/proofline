@@ -84,7 +84,32 @@ for (const adapter of CLI_ADAPTERS) {
   assert.equal((await store.read('runs', started.id)).status, 'done');
   matrix.push({id:adapter.id, evidence:'simulated-process', version:item.version, probe:true, task:true, utf8:true, originalUnchanged:true});
 }
+// A Hermes launcher must not inherit the parent session's unrelated workspace.
+const hermesProgram = path.join(root, 'hermes-fixture.cjs');
+await writeFile(hermesProgram, `const fs = require('node:fs');
+if (process.env.TERMINAL_CWD !== process.cwd()) throw Error('Wrong Hermes workspace');
+if (!process.argv[2].includes(JSON.stringify(process.argv[3]))) throw Error('Missing absolute task path');
+const file = process.argv[4];
+fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('cost is 10', 'cost is 20'));
+console.error('fetch failed ECONNRESET');
+`);
+const hermesPath = path.join(root, process.platform === 'win32' ? 'hermes.cmd' : 'hermes');
+await writeFile(hermesPath, process.platform === 'win32'
+  ? `@echo off\r\n"${process.execPath}" "${hermesProgram}" %*\r\n`
+  : `#!/bin/sh\nexec "${process.execPath}" "${hermesProgram}" "$@"\n`, {mode:0o755});
+const hermesFile = path.join(root, 'hermes 中文.md'), hermesSource = '# Hermes CLI\n\nThe cost is 10.\n';
+await writeFile(hermesFile, hermesSource);
+let hermesRunner;
+const hermesDone = new Promise(resolve => { hermesRunner = new AgentRunner((event, data) => { if (event === 'agents:done') resolve(data); }, {store}); });
+await hermesRunner.run({ documentPath: hermesFile, task: 'Change 10 to 20.', custom: { name: 'Hermes', template: [hermesPath, '{prompt}', '{task}', '{file}'] } });
+const hermesResult = await hermesDone;
+assert.equal(hermesResult.code, 0, hermesResult.output);
+assert.equal(hermesResult.diagnostic, null);
+assert.equal(hermesResult.proposed, hermesSource.replace('10', '20'));
+assert.equal(await readFile(hermesFile, 'utf8'), hermesSource);
 for (const [text, code] of [['Not logged in','login-required'], ['unknown option --old','arguments'], ['fetch failed ECONNRESET','network'], ['429 rate limit quota','quota'], ['EACCES permission denied','permission']]) assert.equal(diagnose(text, {code:1}).code, code);
+assert.equal(diagnose('fetch failed ECONNRESET', {code:0}), null);
+assert.equal(diagnose('fetch failed ECONNRESET', {code:0, timedOut:true}).code, 'timeout');
 const missing = await runCommand(path.join(root, 'missing.exe'), [], {timeout:1000}); assert.equal(missing.ok, false);
 const noSource = new DataStore(path.join(root, 'does-not-exist')); await noSource.copyInto(path.join(root, 'new-storage'));
 const silent = path.join(root, 'silent.cjs'); await writeFile(silent, 'setInterval(()=>{},1000);');

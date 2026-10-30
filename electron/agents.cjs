@@ -254,6 +254,7 @@ function diagnose(output, { timedOut = false, code = null, spawnError = false } 
   if (timedOut) return { code: 'timeout', message: '任务超过所设时限。检查日志后可重新发送，或在设置里延长时限。' };
   if (spawnError) return { code: 'launch-failed', message: '进程未能启动。检查可执行路径、Node 环境和文件权限。' };
   if (/not logged|not authenticated|authentication required|login required|please (?:log|sign) in|401|unauthorized/i.test(output)) return { code: 'login-required', message: 'CLI 尚未登录。点击“打开终端登录”，完成后重新检测。桌面应用的登录不会自动等同于 CLI 登录。' };
+  if (code === 0) return null;
   if (/unknown (?:argument|option)|unrecognized (?:argument|option)|unexpected argument|invalid (?:option|choice)/i.test(output)) return { code: 'arguments', message: '此 CLI 版本不接受启动参数。重新检测版本，或在 AI 工具设置里覆盖参数。' };
   if (/ENOTFOUND|ECONN|ETIMEDOUT|fetch failed|network|proxy|certificate|TLS/i.test(output)) return { code: 'network', message: '连接服务失败。检查此终端的网络、代理和证书设置后重试。' };
   if (/quota|rate.limit|429|insufficient|billing/i.test(output)) return { code: 'quota', message: '服务端额度或限流问题。检查 CLI 账号的额度与模型权限。' };
@@ -363,8 +364,11 @@ class AgentRunner {
     await fs.writeFile(taskFile, task, 'utf8');
     const relativeTask = path.relative(cwd, taskFile).replaceAll(path.sep, '/');
     const values = { prompt: 'Read the file ' + relativeTask + ' in the current directory. First read the whole document it names, then carry out every instruction in it, edit that document directly, and reply in the format it asks for.', task: taskFile, file, dir: cwd };
+    const hermes = path.basename(executable).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, '') === 'hermes';
+    if (hermes) values.prompt = `Read task file ${JSON.stringify(taskFile)}. The document to edit is ${JSON.stringify(file)}. Use these absolute paths and follow every task instruction; edit only that document.`;
     args = args.map((arg) => arg.replace(/\{(prompt|task|file|dir)\}/g, (_, key) => values[key]));
-    const env = await envWithPath({ ...(await adapterEnvironment(adapterId, executable)), FORCE_COLOR: '0', NO_COLOR: '1', CI: '1' });
+    const env = await envWithPath({ ...(await adapterEnvironment(adapterId, executable)), FORCE_COLOR: '0', NO_COLOR: '1', CI: '1',
+      ...(hermes ? { TERMINAL_CWD: cwd } : {}) });
     if (scope !== 'folder') { try { await fs.cp(documentPath + '.assets', file + '.assets', { recursive: true, dereference: false, force: false }); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
     const record = { id, output: '', cwd, file, scope, cleanup, documentPath, base: original, task, tasks, adapterId,
       agentName: adapter?.name || custom?.name || 'Custom', executable, args, startedAt: Date.now(), lastOutputAt: null, status: 'starting', cancelled: false };

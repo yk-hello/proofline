@@ -41,31 +41,12 @@
     "appId": "app.proofline.desktop",
     "productName": "Proofline",
     "afterPack": "scripts/after-pack.cjs",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "build/redline.ico",
-      "build/icon.png",
-      "package.json",
-      "!node_modules/**/*"
-    ],
+    "directories": {"output": "release"},
+    "files": ["dist/**/*", "electron/**/*", "build/redline.ico", "build/icon.png", "package.json", "!node_modules/**/*"],
     "asar": true,
     "npmRebuild": false,
-    "win": {
-      "target": [
-        "portable",
-        "nsis"
-      ],
-      "signAndEditExecutable": false,
-      "icon": "build/redline.ico",
-      "artifactName": "Proofline-${version}-Windows-${arch}.${ext}"
-    },
-    "portable": {
-      "requestExecutionLevel": "user"
-    },
+    "win": {"target": ["portable", "nsis"], "signAndEditExecutable": false, "icon": "build/redline.ico", "artifactName": "Proofline-${version}-Windows-${arch}.${ext}"},
+    "portable": {"requestExecutionLevel": "user"},
     "nsis": {
       "guid": "7b892519-f3a7-5b4b-b934-f61f6df00264",
       "oneClick": false,
@@ -84,41 +65,15 @@
       "include": "build/installer.nsh",
       "artifactName": "Proofline-${version}-Setup-${arch}.${ext}"
     },
-    "asarUnpack": [
-      "electron/redline-core.mjs"
-    ],
+    "asarUnpack": ["electron/redline-core.mjs"],
     "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "universal"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "universal"
-          ]
-        }
-      ],
+      "target": ["dmg", "zip"],
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
       "artifactName": "Proofline-${version}-mac-${arch}.${ext}",
       "identity": null,
       "hardenedRuntime": false,
-      "fileAssociations": [
-        {
-          "ext": [
-            "md",
-            "markdown",
-            "mdown",
-            "mkd"
-          ],
-          "name": "Markdown",
-          "role": "Editor"
-        }
-      ]
+      "fileAssociations": [{"ext": ["md", "markdown", "mdown", "mkd"], "name": "Markdown", "role": "Editor"}]
     }
   },
   "dependencies": {

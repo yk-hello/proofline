@@ -26,7 +26,6 @@ jobs:
         include:
           - {os: windows-latest, platform: win, arch: x64, targets: 'msi nsis portable'}
           - {os: windows-latest, platform: win, arch: arm64, targets: 'msi nsis portable'}
-          - {os: windows-latest, platform: win, arch: ia32, targets: 'msi nsis portable'}
           - {os: macos-latest, platform: mac, arch: x64, targets: 'dmg zip'}
           - {os: macos-latest, platform: mac, arch: arm64, targets: 'dmg zip'}
     runs-on: ${{ matrix.os }}
@@ -89,7 +88,8 @@ jobs:
             const tag = process.env.RELEASE_TAG, name = process.env.RELEASE_NAME;
             if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('Invalid tag');
             const groups = fs.readdirSync('release-assets');
-            if (groups.length !== 5) throw new Error('Missing architecture artifacts');
+            const expected = ['win-x64', 'win-arm64', 'mac-x64', 'mac-arm64'];
+            if (groups.length !== expected.length || expected.some(g => !groups.includes(g))) throw new Error('Missing architecture artifacts');
             for (const group of groups) {
               const files = fs.readdirSync(path.join('release-assets', group));
               if (!files.some(f => /\.(exe|msi|dmg|zip)$/.test(f))) throw new Error(`No real artifacts for ${group}`);
@@ -105,7 +105,7 @@ jobs:
             if (commit.sha !== context.sha) throw new Error('Tag does not point to workflow commit; refusing to move it');
             const releases = await github.paginate(github.rest.repos.listReleases, {owner, repo, per_page: 100});
             if (releases.some(r => r.tag_name === tag)) throw new Error('Release already exists; refusing to overwrite it');
-            const release = (await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: context.sha, name, draft: true, prerelease: false, body: `## ${name}\n\nWindows x64/arm64/ia32 and macOS x64/arm64 cloud builds.\n\nSee build-status.csv and NO-ARTIFACT files for unsupported or failed formats. macOS builds are unsigned and not notarized. No universal build is included.`})).data;
+            const release = (await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: context.sha, name, draft: true, prerelease: false, body: `## ${name}\n\nWindows x64/arm64 and macOS x64/arm64 cloud builds.\n\nWindows ia32 is not supported by Electron 44. No macOS universal build is included.\n\nSee build-status.csv and NO-ARTIFACT files for unsupported or failed formats. macOS builds are unsigned and not notarized.`})).data;
             for (const group of groups) {
               for (const file of fs.readdirSync(path.join('release-assets', group))) {
                 const full = path.join('release-assets', group, file);

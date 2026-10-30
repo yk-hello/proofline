@@ -18,14 +18,18 @@ concurrency:
 env:
   NODE_VERSION: 22
 jobs:
-  windows:
-    name: Windows ${{ matrix.arch }}
-    runs-on: windows-latest
-    continue-on-error: true
+  build:
+    name: ${{ matrix.os }} ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64, ia32]
+        include:
+          - {os: windows-latest, platform: win, arch: x64, targets: 'msi nsis portable'}
+          - {os: windows-latest, platform: win, arch: arm64, targets: 'msi nsis portable'}
+          - {os: windows-latest, platform: win, arch: ia32, targets: 'msi nsis portable'}
+          - {os: macos-latest, platform: mac, arch: x64, targets: 'dmg zip'}
+          - {os: macos-latest, platform: mac, arch: arm64, targets: 'dmg zip'}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,66 +38,41 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node node_modules/electron/install.js
-      - name: Build MSI NSIS portable
+      - run: npm run build
+      - name: Build and collect each target independently
         shell: bash
-        run: |
-          set +e
-          for target in msi nsis portable; do
-            npx electron-builder --win "$target" --${{ matrix.arch }} --publish never
-            echo "$target exit code: $?"
-          done
-      - name: Collect artifacts
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path upload | Out-Null
-          if (Test-Path release) { Get-ChildItem release -File -Include *.msi,*.exe | Copy-Item -Destination upload -Force }
-          if (-not (Get-ChildItem upload -File -ErrorAction SilentlyContinue)) { "No artifacts for ${{ matrix.arch }}" | Set-Content upload/NO-ARTIFACT-${{ matrix.arch }}.txt }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-${{ matrix.arch }}
-          path: upload
-          if-no-files-found: error
-          retention-days: 14
-  macos:
-    name: macOS ${{ matrix.arch }}
-    runs-on: macos-latest
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64, arm64, universal]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - run: npm ci
-      - run: node node_modules/electron/install.js
-      - name: Build DMG and ZIP
-        shell: bash
-        run: |
-          set +e
-          for target in dmg zip; do
-            npx electron-builder --mac "$target" --${{ matrix.arch }} --publish never
-            echo "$target exit code: $?"
-          done
-      - name: Collect artifacts
-        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          TARGETS: ${{ matrix.targets }}
         run: |
           mkdir -p upload
-          find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -exec cp {} upload/ \; 2>/dev/null || true
-          if [ -z "$(find upload -type f -print -quit)" ]; then echo "No artifacts for ${{ matrix.arch }}" > upload/NO-ARTIFACT-${{ matrix.arch }}.txt; fi
+          printf 'target,exit_code,artifact_count\n' > upload/build-status.csv
+          for target in $TARGETS; do
+            rm -rf release
+            status=0
+            npx electron-builder --$PLATFORM "$target" --$ARCH --publish never || status=$?
+            count=0
+            if [ "$status" -eq 0 ]; then
+              while IFS= read -r file; do
+                cp "$file" upload/
+                count=$((count + 1))
+              done < <(find release -maxdepth 1 -type f \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' \) -size +1M 2>/dev/null)
+            fi
+            printf '%s,%s,%s\n' "$target" "$status" "$count" >> upload/build-status.csv
+            if [ "$count" -eq 0 ]; then
+              echo "$PLATFORM $ARCH $target failed or produced no valid artifact; exit=$status" > "upload/NO-ARTIFACT-$ARCH-$target.txt"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}
+          name: ${{ matrix.platform }}-${{ matrix.arch }}
           path: upload
           if-no-files-found: error
           retention-days: 14
   draft-release:
-    name: Create draft Release
-    needs: [windows, macos]
-    if: ${{ always() }}
+    name: Create tagged draft Release
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -104,28 +83,33 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_NAME: ${{ inputs.release_name }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs'), path = require('path');
-            const {owner, repo} = context.repo, tag = process.env.RELEASE_TAG, name = process.env.RELEASE_NAME;
-            let release;
+            const {owner, repo} = context.repo;
+            const tag = process.env.RELEASE_TAG, name = process.env.RELEASE_NAME;
+            if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('Invalid tag');
+            const groups = fs.readdirSync('release-assets');
+            if (groups.length !== 5) throw new Error('Missing architecture artifacts');
+            for (const group of groups) {
+              const files = fs.readdirSync(path.join('release-assets', group));
+              if (!files.some(f => /\.(exe|msi|dmg|zip)$/.test(f))) throw new Error(`No real artifacts for ${group}`);
+            }
+            let tagRef;
             try {
-              release = (await github.rest.repos.getReleaseByTag({owner, repo, tag})).data;
-              if (!release.draft) throw new Error(`Refusing to overwrite non-draft ${tag}`);
+              tagRef = (await github.rest.git.getRef({owner, repo, ref: 'tags/' + tag})).data;
             } catch (e) {
               if (e.status !== 404) throw e;
-              release = (await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: context.sha, name, draft: true, prerelease: false, body: `## ${name}\n\nCloud multi-architecture build. This is a draft.\n\n- Windows: x64, arm64, ia32 attempted; missing targets are recorded as NO-ARTIFACT files.\n- macOS: x64, arm64, universal; DMG and ZIP attempted.\n- Windows ARM64 MSI may be unavailable because of WiX limitations.`})).data;
+              tagRef = (await github.rest.git.createRef({owner, repo, ref: 'refs/tags/' + tag, sha: context.sha})).data;
             }
-            for (const group of fs.readdirSync('release-assets')) {
-              const dir = path.join('release-assets', group);
-              if (!fs.statSync(dir).isDirectory()) continue;
-              for (const file of fs.readdirSync(dir)) {
-                const full = path.join(dir, file);
-                if (!fs.statSync(full).isFile()) continue;
-                const assetName = `${group}-${file}`;
-                const old = release.assets.find(a => a.name === assetName);
-                if (old) await github.rest.repos.deleteReleaseAsset({owner, repo, asset_id: old.id});
-                await github.rest.repos.uploadReleaseAsset({owner, repo, release_id: release.id, name: assetName, data: fs.readFileSync(full)});
+            const commit = (await github.rest.repos.getCommit({owner, repo, ref: tagRef.object.sha})).data;
+            if (commit.sha !== context.sha) throw new Error('Tag does not point to workflow commit; refusing to move it');
+            const releases = await github.paginate(github.rest.repos.listReleases, {owner, repo, per_page: 100});
+            if (releases.some(r => r.tag_name === tag)) throw new Error('Release already exists; refusing to overwrite it');
+            const release = (await github.rest.repos.createRelease({owner, repo, tag_name: tag, target_commitish: context.sha, name, draft: true, prerelease: false, body: `## ${name}\n\nWindows x64/arm64/ia32 and macOS x64/arm64 cloud builds.\n\nSee build-status.csv and NO-ARTIFACT files for unsupported or failed formats. macOS builds are unsigned and not notarized. No universal build is included.`})).data;
+            for (const group of groups) {
+              for (const file of fs.readdirSync(path.join('release-assets', group))) {
+                const full = path.join('release-assets', group, file);
+                await github.rest.repos.uploadReleaseAsset({owner, repo, release_id: release.id, name: `${group}-${file}`, data: fs.readFileSync(full)});
               }
             }
             core.notice(`Draft Release: ${release.html_url}`);

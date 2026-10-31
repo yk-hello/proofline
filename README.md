@@ -5,7 +5,7 @@ Mark up AI-written Markdown, hand the fixes to your local AI CLI, and review eve
 
 [English](#english) · [功能一览](#功能一览) · [平台支持](#平台支持-windows--macos) · [没检测到 CLI？](#没检测到我的-cli怎么办) · [参与共建](CONTRIBUTING.md) · [许可](#许可--license)
 
-> 当前版本 0.4.0（原名 Redline）。**Windows 已可正式使用；macOS 代码已完成，但尚未在真机验证，欢迎有 Mac 的朋友帮忙测试。**
+> 当前版本 0.4.0（原名 Redline）。**Windows 和 macOS 安装包已[发布](https://github.com/yk-hello/proofline/releases/tag/v0.4.0)；macOS Apple Silicon 真机验证及核心审阅写回流程已通过，Intel Mac 完整真机流程仍待验证。**
 
 ---
 
@@ -115,22 +115,25 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 
 ## 平台支持 (Windows / macOS)
 
-| 项目 | Windows 10 / 11 (x64) | macOS (Apple Silicon / Intel) |
+| 项目 | Windows 10 / 11（功能验证为 x64；安装包另含 arm64） | macOS (Apple Silicon / Intel) |
 | --- | --- | --- |
-| 安装包 | ✅ 安装版 + 便携版 | ⏳ 尚未发布（代码已完成，未签名） |
-| 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | 🔶 共用代码；模拟测试通过，未在真机运行 |
-| 自动查找命令行 AI | ✅ 已验证（PATH、fnm、npm 全局、启动脚本） | 🔶 已实现登录 shell PATH、Homebrew、nvm、fnm、Volta、Bun、pnpm；未在真机验证 |
+| 安装包 | ✅ x64 / arm64：NSIS、MSI + 便携版 | ✅ Apple Silicon / Intel：DMG + ZIP（未签名、未公证） |
+| 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | ✅ Apple Silicon：`test:mac-host` 通过，arm64 打包应用的 AI 修改 → 审阅 → 写回流程通过；Intel 完整真机流程待验证 |
+| 自动查找命令行 AI | ✅ 已验证（PATH、fnm、npm 全局、启动脚本） | 🔶 shell PATH 等底层检查通过；12 个内置 CLI 均未在 Mac 实测，仅实测 Hermes 自定义命令 |
 | 安装、升级、卸载后保留数据 | ✅ 用真实安装包实测通过 | ⏳ 未测试 |
 | 默认应用、任务栏 / 程序坞 | ✅ 安装时注册，首次启动有向导 | ⏳ 未测试 |
 | 签名 | 未签名（首次运行点「更多信息 → 仍要运行」） | 未签名、未公证（首次打开需在「隐私与安全性」中允许） |
 
-**命令行 AI 实测情况**（真实账号，完整走完「发现 → 连接 → 修改 → 审阅 → 写回」）：
+Windows arm64 已构建发布，完整真机流程仍待验证；macOS Intel 同样不能以构建成功代替真机通过。本次 Release 不含 Windows ia32 或 macOS universal。
+
+**命令行 AI 实测情况**（结果仅适用于表中环境；Mac 仅实测 Hermes 自定义命令，12 个内置 CLI 均未实测，模拟测试不代表真实 CLI 通过）：
 
 | CLI | 结果 | 环境 |
 | --- | --- | --- |
 | Codex CLI 0.165.0 | ✅ 通过 | Windows 11 |
 | Gemini CLI 0.66.0 | ✅ 通过 | Windows 11 |
 | Claude Code 2.1.312 | ✅ 通过 | Linux（开发环境） |
+| Hermes CLI（自定义命令，非内置适配器） | ✅ 真实模型修改副本 → 审阅 → 接受写回通过 | macOS Apple Silicon（arm64 打包应用）；修复后另通过真实 CLI 回归 |
 | Qwen Code、Kimi CLI、opencode、Cursor CLI、Copilot CLI、Aider | 🔶 模拟测试通过，待真实账号验证 | — |
 | iFlow CLI、CodeBuddy Code、Qoder CLI | 🔶 实验适配，模拟测试通过，待真实账号验证 | — |
 
@@ -139,7 +142,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 ### 帮忙测试
 
 - **Windows 测试者**：安装后按[使用](#使用)走一遍；如果你用的 CLI 在 🔶 列表里，按 [CLI 接入指南](docs/CLI_INTEGRATION.md) 的「新电脑首次使用」测一次。在开发目录运行 `verify-install.bat`，可以自动验证安装、升级、卸载、重装后数据是否保留。
-- **Mac 测试者**：在 Mac 上克隆仓库，运行 `npm ci`、`npm run build`、`npm run test:mac-host`（不打包，默认不调用模型）。再运行 `npm run desktop` 手动试用。请在 Issue 里写明芯片（Apple Silicon / Intel）、macOS 版本和测试结果。步骤见 [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md)。
+- **Mac 测试者**：可先从 [Release](https://github.com/yk-hello/proofline/releases/tag/v0.4.0) 下载对应芯片的 DMG / ZIP 试用（未签名、未公证）。源码验证：在 Mac 上克隆仓库，运行 `npm ci`、`npm run build`、`npm run test:mac-host`（不打包，默认不调用模型）。再运行 `npm run desktop` 手动试用。请在 Issue 里写明芯片（Apple Silicon / Intel）、macOS 版本和测试结果。步骤见 [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md)。
 - **CLI 测试者**：用「[CLI 没检测到或不能用](../../issues/new/choose)」模板反馈，写清 CLI 名称、版本和安装方式。**不要贴密钥、token 或私人文档内容。**
 
 ---
@@ -214,7 +217,7 @@ npm run desktop:pack:mac   # 必须在 Mac 上运行；签名和公证另行配�
 - WYSIWYG editing that rewrites only the blocks you touched; images are saved next to the document.
 - Marks and settings are local JSON files that survive upgrades and uninstalls. No API key needed.
 
-**Platforms**: Windows 10/11 x64 is tested and released. macOS code is complete but not yet verified on real hardware, and no Mac build has been published yet. Mac testers are very welcome; see [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md).
+**Platforms**: Windows x64/arm64 and macOS Apple Silicon/Intel packages are available in [Release 0.4.0](https://github.com/yk-hello/proofline/releases/tag/v0.4.0). Windows x64 is tested. On Apple Silicon, `test:mac-host` passed, and the packaged arm64 app completed real Hermes CLI editing via a custom command, review and write-back. None of the twelve built-in CLIs has been tested with a real CLI/account on Mac; simulated adapter tests do not establish this. Full real-device workflows on Intel Mac and Windows arm64 remain unverified. Mac builds are unsigned and not notarized; installation, upgrade/uninstall data retention and some OS interactions still need testing. This release includes neither Windows ia32 nor macOS universal builds. See [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md).
 
 **CLI not detected?** Ask your own AI, in the terminal where you normally use it, to find its full executable path and a working non-interactive command template (the prompt above works in English too), then enter the path or a custom command under *More → AI tools*.
 

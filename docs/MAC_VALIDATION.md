@@ -2,7 +2,16 @@
 
 2026-10-28：按用户要求暂停 Mac 打包。本轮运行环境为 Windows x64；没有连接的 macOS 主机，没有生成或验证 DMG、ZIP、签名或公证结果。
 
-## 本轮已做
+## 2026-10-30 更新
+
+- Apple Silicon（Darwin arm64）：`npm run test:mac-host` 七阶段（contracts、core、storage、adapters、web-build、desktop、native）全部退出码 0，报告为 `macHostVerified: true`。
+- arm64 打包应用：通过自定义命令调用真实 Hermes CLI，完成修改副本 → 显示差异 → 接受后写回；接受前原文未变。Hermes 不是内置适配器。
+- [PR #4](https://github.com/yk-hello/proofline/pull/4) 已修复 Hermes 任务工作目录与成功任务误报网络失败；修复后 Mac host 验证及真实 Hermes CLI 回归通过（退出码 0、diagnostic 为 null、副本改动而原文未变）。此前的打包应用 UI 测试与修复后 CLI 回归是两次独立验证。
+- [0.4.0 Release](https://github.com/yk-hello/proofline/releases/tag/v0.4.0) 已发布 macOS x64 / arm64 DMG、ZIP；[云构建](https://github.com/yk-hello/proofline/actions/runs/41033258513) 成功。发布附件未逐个在本机安装验证，不以构建成功代替完整真机通过。当前 Release 不含 universal，且未签名、未公证。
+
+以下“本轮”指 2026-10-28 的历史模拟验证；最新状态以上述更新和文末表格为准。
+
+## 2026-10-28 历史模拟验证
 
 直接执行生产代码的 Mac 分支，以模拟的文件系统、进程和 Electron 服务验证：
 
@@ -50,12 +59,12 @@ npm run test:mac-host -- --live-gemini
 
 | 项目 | 当前状态 |
 | --- | --- |
-| Intel Mac 和 Apple Silicon 实际启动与渲染 | 未验证 |
+| Intel Mac 和 Apple Silicon 实际启动与渲染 | Apple Silicon 的 arm64 打包应用启动及核心审阅写回通过；Intel 完整真机流程待验证 |
 | Finder 真正双击、打开方式、启动时文件事件 | 仅处理函数模拟；OS 事件未验证 |
 | Terminal 首次自动化授权和打开后的登录交互 | 未验证；不能用脚本字符串检查代替 |
 | 安装位置只读、/Applications、磁盘卷、Translocation | 仅路径分支模拟；真实权限和挂载未验证 |
-| 各 CLI 的实际安装、账号、代理和模型编辑权限 | 未在 Mac 验证 |
-| 系统剪贴板、输入法、Retina、菜单快捷键、睡眠恢复 | 未验证 |
-| universal 合并、DMG 安装、Gatekeeper、签名与公证 | 按要求未打包，均未验证 |
+| 各 CLI 的实际安装、账号、代理和模型编辑权限 | Hermes 自定义命令真实模型编辑通过；12 个内置 CLI 均未在 Mac 实测，模拟适配器测试不算真实 CLI 验证 |
+| 系统剪贴板、输入法、Retina、菜单快捷键、睡眠恢复 | Mac host 的菜单与 ⌘F 检查通过；其余仍待验证 |
+| universal 合并、DMG 安装、Gatekeeper、签名与公证 | 本地曾生成 universal 并通过 DMG 镜像校验，但当前 Release 仅含 x64 / arm64；DMG 安装、Gatekeeper 分发体验未验证，未签名、未公证 |
 
-达到可交付标准需要至少在 Apple Silicon 和 Intel 各完成上述主流程，并保存主机/架构、版本、报告和截图。当前只能交付代码与验证脚本，不能宣称 Mac 版本已可发布。
+Mac 安装包现已发布，Apple Silicon 主机验证与核心流程已有通过记录；这不代表上表所有项目均已验证。完整双架构验收仍需在 Intel Mac 补测主流程，并在两种架构确认安装、升级/卸载后数据保留及其余系统交互，保存主机/架构、版本、报告和截图。

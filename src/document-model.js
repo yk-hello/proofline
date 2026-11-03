@@ -110,6 +110,18 @@ export function sourceForChunk(source, chunk, model) {
   return appended.length ? `${body}\n\n${appended.join('\n\n')}` : body;
 }
 
+// Show what the reader sees in the result list, not Markdown syntax.
+export function plainSnippet(value, cut = false) {
+  const text = value
+    .replace(/^\s*(?:#{1,6}|>+|[-*+]|\d+[.)])\s+/, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|~~|`)/g, '')
+    .replace(/\s*\|\s*/g, ' · ')
+    .replace(/\s+/g, ' ').trim();
+  return (cut ? '…' : '') + text.replace(/^· | ·$/g, '');
+}
+
 export function searchDocument(source, query, model, options = {}) {
   if (!query.trim()) return [];
   const results = [];
@@ -122,8 +134,8 @@ export function searchDocument(source, query, model, options = {}) {
       const at = match.index;
       while (model.chunks[chunkIndex + 1]?.start <= offset + at) chunkIndex += 1;
       results.push({ index: results.length, offset: offset + at, length: match.length, text: match.text, line, chunk: chunkIndex,
-        location: /^#{1,6}\s/.test(text) ? '标题' : '正文',
-        snippet: text.slice(Math.max(0, at - 40), Math.min(text.length, at + match.length + 70)).trim() });
+        location: /^#{1,6}\s/.test(text) ? '标题' : /^\s*\|/.test(text) ? '表格' : /^\s*>/.test(text) ? '引用' : /^\s*(?:[-*+]|\d+[.)])\s/.test(text) ? '列表' : '正文',
+        snippet: plainSnippet(text.slice(Math.max(0, at - 40), Math.min(text.length, at + match.length + 70)), at > 40) });
     }
     line += 1; offset = end + 1;
   }

@@ -87,7 +87,10 @@ try {
   await page.locator('.transfer-dialog').getByRole('button',{name:'生成并打开任务文件夹',exact:true}).click();
   await page.locator('.transfer-message').waitFor();
   const taskFolder=await page.locator('.transfer-message').innerText();
-  assert.equal(await readFile(path.join(taskFolder,path.basename(file)),'utf8'),withImage);
+  // The portable copy carries precise anchors; without them it is the saved document.
+  const portable=await readFile(path.join(taskFolder,path.basename(file)),'utf8');
+  assert.match(portable,/\[\[PL-1\]\]The cost is 10\.\[\[\/PL-1\]\]/);
+  assert.equal(portable.replace(/\[\[\/?PL-\d+\]\]/g,''),withImage);
   assert.deepEqual(await readFile(path.join(taskFolder,path.basename(file)+'.assets',assets[0])),imageBytes);
   await page.locator('.transfer-dialog').getByRole('button',{name:'完成',exact:true}).click();
   await markSaved(); await close(); await launch(); await invoke('openPath',[file]);
@@ -138,6 +141,29 @@ try {
   assert.equal((await invoke('getContent')).content,otherSource);assert.equal(await readFile(other,'utf8'),otherSource);
   await page.setViewportSize({width:1280,height:720}); await page.screenshot({path:path.join(output,'compact-1280.png')});
   report.checks.push('cross-tab-discard-buffer-and-disk');
+  // Precise targeting: a careless CLI that replaces every 6 changes only the selected one.
+  const digits=path.join(output,'Digits.md'), digitsSource='# Order\n\nOrder 36361 ships today.\n\nRoom 6 is free.\n'; await writeFile(digits,digitsSource);
+  const greedyScript=path.join(output,'greedy-cli.cjs');
+  await writeFile(greedyScript,'const fs=require("node:fs");const f=process.argv[2];const text=fs.readFileSync(f,"utf8");if(!text.includes("[[PL-1]]6[[/PL-1]]"))process.exit(3);fs.writeFileSync(f,text.replace(/6/g,"gemini"));console.log("#1 changed");');
+  await page.evaluate(async({node,script})=>{
+    const key='redline-agent-settings-v1', settings=JSON.parse(localStorage.getItem(key)||'{}');
+    settings.customs=[{id:'greedy-fixture',name:'Greedy fixture',template:'"'+node+'" "'+script+'" "{file}"'}];
+    await window.mengxDesktop.system.writeAgentSettings(settings);localStorage.setItem(key,JSON.stringify(settings));
+  },{node:process.execPath,script:greedyScript});
+  await invoke('openPath',[digits]);
+  const digitText=await page.evaluate(()=>{ const walker=document.createTreeWalker(document.querySelector('.document-content'),NodeFilter.SHOW_TEXT); let node; while((node=walker.nextNode())){ const at=node.nodeValue.indexOf('36361'); if(at>=0){ const r=document.createRange(); r.setStart(node,at+3); r.setEnd(node,at+4); getSelection().removeAllRanges(); getSelection().addRange(r); document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true})); return r.toString(); } } return null; });
+  assert.equal(digitText,'6');
+  await page.locator('.selection-tools .sel-type.type-fix').click();
+  await page.locator('.mark-popover textarea').fill('Change this 6 to gemini');
+  await page.keyboard.press('Escape'); await markSaved();
+  await page.locator('.rail-tabs button').first().click();
+  await send('Greedy fixture'); await page.locator('.review-view').waitFor({timeout:30000});
+  assert.match(await page.locator('.review-scope').innerText(),/没选中的 2 处/);
+  await page.locator('.review-bar').getByRole('button',{name:'全部接受',exact:true}).click();
+  await page.locator('.review-bar .primary-button').click();
+  await page.locator('.review-view').waitFor({state:'detached'}); await saved();
+  assert.equal(await readFile(digits,'utf8'),'# Order\n\nOrder 363gemini1 ships today.\n\nRoom 6 is free.\n');
+  report.checks.push('precise-anchor-scope');
   assert.deepEqual(report.errors,[]); report.ok=true;
 } catch(error) { report.ok=false; report.failure=error.stack; if(page) await page.screenshot({path:path.join(output,'failure.png')}).catch(()=>{}); throw error; }
 finally { if(app) await close(); await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)); console.log(JSON.stringify(report)); }

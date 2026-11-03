@@ -36,6 +36,10 @@ const STRINGS = {
     // Review
     reviewTitle: '审阅 AI 修改', reviewFrom: (source) => `来源：${source}`, acceptAll: '全部接受', rejectAll: '全部驳回', apply: '完成审阅',
     accept: '接受', reject: '驳回', accepted: '已接受', rejected: '已驳回', unchangedBlocks: (n) => `${n} 段未改动`, showWords: '逐字对比', showRendered: '排版视图',
+    outsideTitle: (n) => `AI 还改动了你没选中的 ${n} 处，已自动排除`,
+    outsideHint: '这些改动在锚点之外，默认不会写入。如果确实需要，可以切换为审阅 AI 的全部改动。',
+    outsideShow: '也审阅这些改动', outsideHide: '只审阅选中范围内的改动', outsideIncluded: '正在审阅 AI 的全部改动，包括选中范围以外的。',
+    anchorMissing: (list) => `AI 删掉了 ${list} 的定位锚点，无法自动限定修改范围。下面是 AI 的全部改动，请逐处核对。`,
     noChanges: 'AI 没有修改文档内容。', answers: 'AI 的回答', changeCount: (n) => `${n} 处修改`, decided: (a, b) => `${a}/${b} 已决定`,
     reviewApplied: '已写入修改', reviewDiscarded: '已放弃这次修改', discard: '放弃全部', externalSource: '外部程序', pastedSource: '粘贴的回复', addresses: '处理',
     // Agent settings
@@ -78,6 +82,10 @@ const STRINGS = {
     pasteNothing: 'No changes recognized. Make sure you pasted the complete reply.', pasteMissing: (list) => `Paragraphs for #${list} were not found and were skipped`,
     reviewTitle: 'Review AI changes', reviewFrom: (source) => `From: ${source}`, acceptAll: 'Accept all', rejectAll: 'Reject all', apply: 'Finish review',
     accept: 'Accept', reject: 'Reject', accepted: 'Accepted', rejected: 'Rejected', unchangedBlocks: (n) => `${n} unchanged paragraph${n === 1 ? '' : 's'}`, showWords: 'Word diff', showRendered: 'Formatted',
+    outsideTitle: (n) => `The AI also changed ${n} place${n === 1 ? '' : 's'} you did not select; excluded`,
+    outsideHint: 'These changes are outside the anchors and will not be written. Switch to the full set if you do want them.',
+    outsideShow: 'Review these too', outsideHide: 'Only changes inside the selection', outsideIncluded: 'Reviewing every AI change, including outside the selection.',
+    anchorMissing: (list) => `The AI removed the anchors for ${list}, so the edit could not be limited to the selection. Every AI change is shown below; check each one.`,
     noChanges: 'The AI did not change the document.', answers: 'AI answers', changeCount: (n) => `${n} change${n === 1 ? '' : 's'}`, decided: (a, b) => `${a}/${b} decided`,
     reviewApplied: 'Changes written', reviewDiscarded: 'Changes discarded', discard: 'Discard all', externalSource: 'Another program', pastedSource: 'Pasted reply', addresses: 'Addresses',
     agentSettings: 'AI tools', customAgents: 'Custom commands', addCustom: 'Add custom command', commandTemplate: 'Command template',

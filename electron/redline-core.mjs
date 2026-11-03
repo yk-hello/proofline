@@ -1,4 +1,4 @@
-import { diffArrays } from 'diff';
+import { diffArrays, diffChars } from 'diff';
 // Pure Proofline logic shared by the reader, the CLI and the MCP server.
 // No DOM, no Node APIs: everything here works on strings.
 
@@ -98,10 +98,120 @@ export function buildTasks(source, marks, { includeStatuses = ['open', 'sent', '
       instruction: mark.note || '', question: mark.status === 'question' ? mark.question || '' : '', heading: at < 0 ? '' : headingTrail(source, at),
       blockIndex, blockStart: block?.start ?? -1, blockEnd: block?.end ?? -1,
       block: block ? block.text.replace(/\s+$/, '') : '', orphaned: at < 0,
+      start: at, end: at < 0 ? -1 : at + (mark.anchor?.rawQuote || mark.anchor?.text || '').length,
       line: at < 0 ? 0 : lineOf(at),
       lineEnd: at < 0 ? 0 : lineOf(Math.max(at, at + (mark.anchor?.rawQuote || mark.anchor?.text || '').length - 1)),
     };
   });
+}
+
+// ---------- Precise targeting ----------
+// The AI gets a working copy in which every marked span is wrapped in numbered anchors,
+// e.g. 363[[PL-1]]6[[/PL-1]]1. It may only change text between its anchors. Afterwards the
+// anchors are removed and any change outside them is set aside for the user to decide on,
+// so "change this 6" can never turn into "change every 6 in the paragraph".
+export const ANCHOR_PATTERN = /\[\[\/?PL-\d+\]\]/g;
+export const anchorOpen = (n) => `[[PL-${n}]]`;
+export const anchorClose = (n) => `[[/PL-${n}]]`;
+export const stripAnchors = (text) => String(text ?? '').replace(ANCHOR_PATTERN, '');
+
+/** Wrap each located task in anchors. Overlapping marks share one anchor (the first number). */
+export function anchorDocument(source, tasks) {
+  if (/\[\[\/?PL-\d+\]\]/.test(source)) return { enabled: false, reason: 'source-contains-anchor', text: source, anchors: [], groupOf: new Map() };
+  const spans = tasks.filter((task) => !task.orphaned && task.start >= 0 && task.end > task.start)
+    .map((task) => ({ n: task.n, start: task.start, end: task.end, members: [task.n] })).sort((a, b) => a.start - b.start || b.end - a.end);
+  const anchors = [];
+  for (const span of spans) {
+    const last = anchors.at(-1);
+    if (last && span.start < last.end) { last.end = Math.max(last.end, span.end); last.members.push(span.n); continue; }
+    anchors.push({ ...span, members: [...span.members] });
+  }
+  if (!anchors.length) return { enabled: false, reason: 'nothing-to-anchor', text: source, anchors: [], groupOf: new Map() };
+  let text = '', cursor = 0;
+  for (const anchor of anchors) {
+    text += source.slice(cursor, anchor.start) + anchorOpen(anchor.n) + source.slice(anchor.start, anchor.end) + anchorClose(anchor.n);
+    cursor = anchor.end;
+  }
+  text += source.slice(cursor);
+  const groupOf = new Map(anchors.flatMap((anchor) => anchor.members.map((n) => [n, anchor.n])));
+  return { enabled: true, text, anchors: anchors.map(({ n, start, end, members }) => ({ n, start, end, members })), groupOf };
+}
+
+/** Map an offset in the original source to the anchored copy. */
+export function anchoredOffset(plan, offset) {
+  let shift = 0;
+  for (const anchor of plan.anchors || []) {
+    if (offset > anchor.start) shift += anchorOpen(anchor.n).length;
+    if (offset >= anchor.end && offset > anchor.start) shift += anchorClose(anchor.n).length;
+  }
+  return offset + shift;
+}
+
+const normalize = (text) => text.replace(/\r\n/g, '\n');
+
+/**
+ * Read the AI's edited copy back. Returns the scoped result (changes inside anchors only),
+ * the full result (everything the AI changed), and the changes it made outside the anchors.
+ */
+export function resolveAnchors(source, plan, edited) {
+  const full = stripAnchors(edited);
+  if (!plan?.enabled || !plan.anchors?.length) return { ok: true, anchored: false, scoped: full, full, outside: [], missing: [] };
+  const value = String(edited ?? '');
+  const positions = [], missing = [];
+  let from = 0;
+  for (const anchor of plan.anchors) {
+    const open = value.indexOf(anchorOpen(anchor.n), from);
+    const close = open < 0 ? -1 : value.indexOf(anchorClose(anchor.n), open + anchorOpen(anchor.n).length);
+    if (open < 0 || close < 0) { missing.push(...anchor.members); continue; }
+    positions.push({ anchor, open, inner: open + anchorOpen(anchor.n).length, close, after: close + anchorClose(anchor.n).length });
+    from = close + anchorClose(anchor.n).length;
+  }
+  if (missing.length) return { ok: false, anchored: true, scoped: full, full, outside: [], missing };
+  let scoped = '', cursor = 0, editedCursor = 0;
+  const outside = [];
+  const compare = (originalPart, editedPart, baseStart) => {
+    const editedText = normalize(stripAnchors(editedPart)), originalText = normalize(originalPart);
+    if (originalText === editedText) return;
+    // One entry per separate change, so "every 6 became gemini" reads as a list of places.
+    const parts = originalText.length + editedText.length > 200000 ? null : diffChars(originalText, editedText);
+    if (!parts) { outside.push({ baseStart, baseEnd: baseStart + originalPart.length, before: originalPart.slice(0, 200), after: editedText.slice(0, 200) }); return; }
+    let offset = 0, current = null;
+    const flush = () => { if (current) outside.push(current); current = null; };
+    for (const [index, part] of parts.entries()) {
+      if (!part.added && !part.removed) {
+        // Join changes separated by one or two characters ("10.5" -> "20.7").
+        if (current && index < parts.length - 1 && part.value.length <= 2 && !/\n/.test(part.value)) { current.before += part.value; current.after += part.value; current.baseEnd += part.value.length; offset += part.value.length; continue; }
+        flush(); offset += part.value.length; continue;
+      }
+      current ||= { baseStart: baseStart + offset, baseEnd: baseStart + offset, before: '', after: '' };
+      if (part.removed) { current.before += part.value; current.baseEnd += part.value.length; offset += part.value.length; }
+      else current.after += part.value;
+    }
+    flush();
+  };
+  for (const position of positions) {
+    compare(source.slice(cursor, position.anchor.start), value.slice(editedCursor, position.open), cursor);
+    scoped += source.slice(cursor, position.anchor.start) + stripAnchors(value.slice(position.inner, position.close));
+    cursor = position.anchor.end; editedCursor = position.after;
+  }
+  compare(source.slice(cursor), value.slice(editedCursor), cursor);
+  scoped += source.slice(cursor);
+  return { ok: true, anchored: true, scoped, full, outside, missing: [] };
+}
+
+/** Where a mark sits, in words: column, which occurrence on the line, and its neighbours. */
+export function positionHint(text, start, end) {
+  if (!(start >= 0) || !(end > start)) return null;
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  const lineEndAt = text.indexOf('\n', start); const lineEnd = lineEndAt < 0 ? text.length : lineEndAt;
+  const quote = text.slice(start, end);
+  let occurrence = 0, total = 0;
+  if (!quote.includes('\n')) {
+    for (let at = text.indexOf(quote, lineStart); at >= 0 && at + quote.length <= lineEnd; at = text.indexOf(quote, at + 1)) { total++; if (at <= start) occurrence = total; }
+  }
+  const visible = (value) => stripAnchors(value).replace(/\s+/g, ' ');
+  return { column: start - lineStart + 1, occurrence, total,
+    before: visible(text.slice(Math.max(lineStart, start - 24), start)), after: visible(text.slice(end, Math.min(lineEnd, end + 24))) };
 }
 
 const RULES = {
@@ -182,12 +292,27 @@ const AGENT = {
     type: { fix: '修改', expand: '展开', delete: '删除', ask: '提问' },
     lines: (a, b) => (a === b ? `第 ${a} 行` : `第 ${a}–${b} 行`), where: '章节',
     marked: '标记内容', instruction: '用户要求', block: '所在段落原文',
+    anchorsTitle: '## 定位锚点（重要）',
+    anchors: (file) => [
+      `\`${file}\` 是一份工作副本。每条批注选中的文字两边都插入了编号锚点，例如 \`363[[PL-1]]6[[/PL-1]]1\` 表示用户只选中了中间那个 6。`,
+      '**只修改锚点之间的文字，并保留锚点本身**，Proofline 会在你完成后自动去掉锚点。',
+      '锚点之外的文字一个字都不要改，哪怕看起来一样的内容出现在别处，也不要顺手改。如果不改锚点外的文字就无法完成要求，这一条先不改，用 QUESTION 说明原因。',
+      '「删除」就把锚点之间清空；「展开」把扩写后的完整内容写在锚点之间。',
+      '理解原文时把锚点当作不存在，它们不是文档内容。',
+    ],
+    anchor: (n) => `锚点：\`[[PL-${n}]]\` … \`[[/PL-${n}]]\``, sharedAnchor: (n) => `锚点：与 #${n} 重叠，共用 \`[[PL-${n}]]\` … \`[[/PL-${n}]]\``,
+    position: (hint, anchored) => [
+      !anchored && hint.column ? `第 ${hint.column} 列` : '',
+      hint.total > 1 ? `是这一行里第 ${hint.occurrence} 处（共 ${hint.total} 处）同样的文字，只改这一处` : '',
+      hint.before ? `前文「${hint.before}」` : '', hint.after ? `后文「${hint.after}」` : '',
+    ].filter(Boolean).join('；'),
+    locate: '精确位置',
     asked: '你上次的疑问', askedHint: '（用户已经看过这个疑问，补充内容写在上面的「用户要求」或「用户的补充说明」里）',
     defaults: { fix: '修正这段文字中的问题。', expand: '展开写得更充分、更具体。', delete: '删除标记的文字。', ask: '回答关于这段文字的问题。' },
     orphaned: '（原文已变化，找不到这段文字，请根据标记内容在全文中判断位置）',
     rulesTitle: '## 处理规则',
-    rules: (file, scope) => [
-      '只修改批注所在的段落，其他内容保持原样，包括空行和 Markdown 格式。',
+    rules: (file, scope, anchored) => [
+      anchored ? '只修改锚点之间的文字，锚点外保持原样，包括空行和 Markdown 格式。' : '只修改批注所在的段落，其他内容保持原样，包括空行和 Markdown 格式。同一段里有相同的文字时，只改「精确位置」指出的那一处。',
       '行号按任务生成时的文件计算。请从文件末尾往前处理，并用「标记内容」核对位置，避免前面的修改让行号错位。',
       '「删除」：删去标记的文字；如果整段都应删除，删除该段。',
       '「提问」：不要修改文档，在回复里用 ANSWER 格式回答。',
@@ -208,12 +333,27 @@ const AGENT = {
     type: { fix: 'Fix', expand: 'Expand', delete: 'Delete', ask: 'Ask' },
     lines: (a, b) => (a === b ? `line ${a}` : `lines ${a}–${b}`), where: 'Section',
     marked: 'Marked text', instruction: 'User instruction', block: 'Paragraph as written',
+    anchorsTitle: '## Anchors (important)',
+    anchors: (file) => [
+      `\`${file}\` is a working copy. The text selected for each note is wrapped in numbered anchors, e.g. \`363[[PL-1]]6[[/PL-1]]1\` means the user selected only the middle 6.`,
+      '**Change only the text between a note\'s anchors and keep the anchors themselves**; Proofline removes them when you finish.',
+      'Do not change a single character outside the anchors, even if the same text appears elsewhere. If a note cannot be done without changing text outside its anchors, leave it unchanged and explain in a QUESTION.',
+      'Delete: empty the text between the anchors. Expand: write the complete expanded text between the anchors.',
+      'Ignore the anchors when reading for meaning; they are not part of the document.',
+    ],
+    anchor: (n) => `Anchors: \`[[PL-${n}]]\` … \`[[/PL-${n}]]\``, sharedAnchor: (n) => `Anchors: overlaps #${n}; shares \`[[PL-${n}]]\` … \`[[/PL-${n}]]\``,
+    position: (hint, anchored) => [
+      !anchored && hint.column ? `column ${hint.column}` : '',
+      hint.total > 1 ? `occurrence ${hint.occurrence} of ${hint.total} of the same text on this line; change only this one` : '',
+      hint.before ? `preceded by "${hint.before}"` : '', hint.after ? `followed by "${hint.after}"` : '',
+    ].filter(Boolean).join('; '),
+    locate: 'Exact position',
     asked: 'Your earlier question', askedHint: '(The user has seen this question; their answer is in the instruction above or in the additional notes.)',
     defaults: { fix: 'Correct the problem in this passage.', expand: 'Develop this passage in more depth and detail.', delete: 'Remove the marked text.', ask: 'Answer the question about this passage.' },
     orphaned: '(The passage changed and could not be located; use the marked text to find it in the document.)',
     rulesTitle: '## Rules',
-    rules: (file, scope) => [
-      'Change only the paragraphs that carry a note; keep everything else, including blank lines and Markdown formatting.',
+    rules: (file, scope, anchored) => [
+      anchored ? 'Change only text between anchors; keep everything outside them, including blank lines and Markdown formatting.' : 'Change only the paragraphs that carry a note; keep everything else, including blank lines and Markdown formatting. When the same text appears more than once, change only the occurrence given under Exact position.',
       'Line numbers refer to the file as it was when this task was written. Work from the end of the file upward and confirm each spot with the marked text, so earlier edits do not shift later lines.',
       'Delete: remove the marked text; if the whole paragraph should go, delete the paragraph.',
       'Ask: do not change the document; answer in your reply using the ANSWER format.',
@@ -226,30 +366,38 @@ const AGENT = {
   },
 };
 
-function buildAgentPrompt({ language, name, file, source, tasks, scope, note }) {
+function buildAgentPrompt({ language, name, file, source, tasks, scope, note, anchors }) {
   const copy = AGENT[language] || AGENT.zh;
   const target = file || name, lineCount = source ? source.split('\n').length - (source.endsWith('\n') ? 1 : 0) : 0;
-  const out = [copy.title(name), '', copy.file(target, lineCount), '', copy.readTitle, '', copy.read(target), '',
-    copy.noteTitle, '', String(note || '').trim() || copy.noNote, '', copy.listTitle(tasks.length), ''];
+  const anchored = Boolean(anchors?.enabled), colon = language === 'en' ? ': ' : '：';
+  const out = [copy.title(name), '', copy.file(target, lineCount), '', copy.readTitle, '', copy.read(target), ''];
+  if (anchored) { out.push(copy.anchorsTitle, ''); copy.anchors(target).forEach((line) => out.push(`- ${line}`)); out.push(''); }
+  out.push(copy.noteTitle, '', String(note || '').trim() || copy.noNote, '', copy.listTitle(tasks.length), '');
   for (const task of tasks) {
     const at = task.line ? ` · ${copy.lines(task.line, task.lineEnd || task.line)}` : '';
-    out.push(`### #${task.n} ${copy.type[task.type]}${at}${task.heading ? ` · ${copy.where}：${task.heading}` : ''}`);
+    out.push(`### #${task.n} ${copy.type[task.type]}${at}${task.heading ? ` · ${copy.where}${colon}${task.heading}` : ''}`);
     if (task.orphaned) out.push(copy.orphaned);
-    out.push(`- ${copy.marked}：「${task.quote.replace(/\s+/g, ' ').slice(0, 600)}」`);
-    out.push(`- ${copy.instruction}：${task.instruction.trim() || copy.defaults[task.type]}`);
-    if (task.question) out.push(`- ${copy.asked}：${task.question.replace(/\s+/g, ' ').slice(0, 1200)} ${copy.askedHint}`);
-    if (!task.orphaned && task.block && task.block.length < 1600) out.push(`- ${copy.block}：`, fence(task.block));
+    out.push(`- ${copy.marked}${colon}「${task.quote.replace(/\s+/g, ' ').slice(0, 600)}」`);
+    const group = anchored ? anchors.groupOf.get(task.n) : undefined;
+    if (group !== undefined) out.push(`- ${group === task.n ? copy.anchor(task.n) : copy.sharedAnchor(group)}`);
+    const hint = !task.orphaned && source ? positionHint(source, task.start, task.end) : null;
+    const where = hint ? copy.position(hint, group !== undefined) : '';
+    if (where) out.push(`- ${copy.locate}${colon}${where}`);
+    out.push(`- ${copy.instruction}${colon}${task.instruction.trim() || copy.defaults[task.type]}`);
+    if (task.question) out.push(`- ${copy.asked}${colon}${task.question.replace(/\s+/g, ' ').slice(0, 1200)} ${copy.askedHint}`);
+    const block = anchored && task.blockStart >= 0 ? anchors.text.slice(anchoredOffset(anchors, task.blockStart), anchoredOffset(anchors, task.blockEnd)).replace(/\s+$/, '') : task.block;
+    if (!task.orphaned && block && block.length < 1600) out.push(`- ${copy.block}${colon}`, fence(block));
     out.push('');
   }
   out.push(copy.rulesTitle, '');
-  copy.rules(target, scope).forEach((rule, index) => out.push(`${index + 1}. ${rule}`));
+  copy.rules(target, scope, anchored).forEach((rule, index) => out.push(`${index + 1}. ${rule}`));
   out.push('', copy.replyTitle, '', copy.reply, '', '<<<ANSWER #编号'.replace('编号', language === 'en' ? 'number' : '编号'), '…', '>>>', '',
     '<<<QUESTION #编号'.replace('编号', language === 'en' ? 'number' : '编号'), '…', '>>>');
   return out.join('\n');
 }
 
-export function buildPrompt({ mode = 'chat', language = 'zh', name, file, source, tasks, scope = 'file', note = '' }) {
-  if (mode === 'agent') return buildAgentPrompt({ language, name, file, source, tasks, scope, note });
+export function buildPrompt({ mode = 'chat', language = 'zh', name, file, source, tasks, scope = 'file', note = '', anchors = null }) {
+  if (mode === 'agent') return buildAgentPrompt({ language, name, file, source, tasks, scope, note, anchors });
   const copy = RULES[language] || RULES.zh;
   const lines = [copy.title(name), '', mode === 'chat' ? copy.chatIntro(name) : copy.agentIntro(file || name), ''];
   (mode === 'chat' ? copy.chatRules : copy.agentRules(scope)).forEach((rule, index) => lines.push(`${index + 1}. ${rule}`));

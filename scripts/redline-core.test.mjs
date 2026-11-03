@@ -86,3 +86,42 @@ console.log('redline-core ok');
   assert.equal(composeReview(sparse, {}), after);
   console.log('indentation and long sparse diffs ok');
 }
+
+// Precise targeting: anchors around the selected characters, and changes outside them set aside.
+{
+  const { anchorDocument, resolveAnchors, stripAnchors, buildTasks: tasksOf, buildPrompt: promptOf } = await import('../electron/redline-core.mjs');
+  const doc = '# 价格\n\n编号 36361 是订单号。\n\n另一段也有 6。\n';
+  const at = doc.indexOf('36361') + 3;
+  const marks = [
+    { id: 'a', type: 'fix', status: 'open', note: '改成 gemini', anchor: { text: '6', rawQuote: '6', prefix: '编号 363', suffix: '1 是', sourceOffset: at } },
+    { id: 'b', type: 'ask', status: 'open', note: '这是什么编号？', anchor: { text: '订单号', rawQuote: '订单号', prefix: '是', suffix: '。', sourceOffset: doc.indexOf('订单号') } },
+  ];
+  const tasks = tasksOf(doc, marks);
+  assert.deepEqual(tasks.map((task) => doc.slice(task.start, task.end)), ['6', '订单号']);
+  const plan = anchorDocument(doc, tasks);
+  assert.equal(plan.text, '# 价格\n\n编号 363[[PL-1]]6[[/PL-1]]1 是[[PL-2]]订单号[[/PL-2]]。\n\n另一段也有 6。\n');
+  assert.equal(stripAnchors(plan.text), doc);
+  const prompt = promptOf({ mode: 'agent', language: 'zh', name: 'a.md', file: 'a.md', source: doc, tasks, anchors: plan });
+  assert.match(prompt, /只修改锚点之间的文字/);
+  assert.match(prompt, /第 2 处（共 2 处）/);
+  assert.match(prompt, /编号 363\[\[PL-1\]\]6\[\[\/PL-1\]\]1/);
+  // A careless AI replaces every 6: only the selected one survives, the rest are listed.
+  const greedy = plan.text.replace(/6/g, 'gemini');
+  const result = resolveAnchors(doc, plan, greedy);
+  assert.equal(result.scoped, '# 价格\n\n编号 363gemini1 是订单号。\n\n另一段也有 6。\n');
+  assert.equal(result.full, doc.replace(/6/g, 'gemini'));
+  assert.deepEqual(result.outside.map((item) => [item.before, item.after]), [['6', 'gemini'], ['6', 'gemini']]);
+  // A careful AI: nothing is set aside.
+  const careful = resolveAnchors(doc, plan, plan.text.replace('[[PL-1]]6[[/PL-1]]', '[[PL-1]]gemini[[/PL-1]]'));
+  assert.equal(careful.scoped, careful.full); assert.equal(careful.outside.length, 0);
+  // Deleting anchors falls back to the full result and says which notes lost them.
+  const lost = resolveAnchors(doc, plan, greedy.replace('[[PL-2]]', ''));
+  assert.equal(lost.ok, false); assert.deepEqual(lost.missing, [2]); assert.equal(lost.scoped, lost.full);
+  // CRLF from the AI does not count as an outside change.
+  assert.equal(resolveAnchors(doc, plan, plan.text.replace(/\n/g, '\r\n')).outside.length, 0);
+  // Overlapping marks share one anchor; a document that already contains anchor text is left alone.
+  const overlap = anchorDocument('abcdef\n', [{ n: 1, start: 0, end: 4 }, { n: 2, start: 2, end: 6 }]);
+  assert.equal(overlap.text, '[[PL-1]]abcdef[[/PL-1]]\n'); assert.equal(overlap.groupOf.get(2), 1);
+  assert.equal(anchorDocument('see [[PL-1]] here', [{ n: 1, start: 0, end: 3 }]).enabled, false);
+  console.log('precise anchors ok');
+}

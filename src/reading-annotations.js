@@ -2,12 +2,39 @@
 // This data belongs to the reader; it is never inserted into the source file.
 export const ANNOTATIONS_KEY = 'mengx-reading-annotations-v1';
 
+// How many visible characters of the selection's surroundings match a candidate.
+// The reader's prefix/suffix come from rendered text, which lacks Markdown markers and
+// line breaks ("Order" vs "# Order\n\n"), so an exact comparison fails and the nearest
+// occurrence used to win: selecting the second 6 in "36361" marked the first one.
+const CONTEXT_SKIP = /[\s*`~_|\\#>]/;
+function contextScore(source, at, quote, prefix, suffix) {
+  let score = 0;
+  if (prefix) {
+    for (let i = at - 1, j = prefix.length - 1, n = 0; i >= 0 && j >= 0 && n < 64;) {
+      if (CONTEXT_SKIP.test(source[i])) { i--; continue; }
+      if (CONTEXT_SKIP.test(prefix[j])) { j--; continue; }
+      if (source[i] !== prefix[j]) break;
+      score++; n++; i--; j--;
+    }
+  }
+  if (suffix) {
+    for (let i = at + quote.length, j = 0, n = 0; i < source.length && j < suffix.length && n < 64;) {
+      if (CONTEXT_SKIP.test(source[i])) { i++; continue; }
+      if (CONTEXT_SKIP.test(suffix[j])) { j++; continue; }
+      if (source[i] !== suffix[j]) break;
+      score++; n++; i++; j++;
+    }
+  }
+  return score;
+}
+
 function closestMatch(source, quote, hint, prefix = '', suffix = '') {
   if (!quote) return -1;
   let best = -1, score = -Infinity, count = 0;
-  for (let at = source.indexOf(quote); at >= 0 && count++ < 10000; at = source.indexOf(quote, at + Math.max(1, quote.length))) {
-    const value = (prefix && source.slice(Math.max(0, at - prefix.length), at) === prefix ? 1000000 : 0)
-      + (suffix && source.slice(at + quote.length, at + quote.length + suffix.length) === suffix ? 1000000 : 0) - Math.abs(at - hint);
+  for (let at = source.indexOf(quote); at >= 0 && count++ < 10000; at = source.indexOf(quote, at + 1)) {
+    const exact = (prefix && source.slice(Math.max(0, at - prefix.length), at) === prefix ? 1 : 0)
+      + (suffix && source.slice(at + quote.length, at + quote.length + suffix.length) === suffix ? 1 : 0);
+    const value = exact * 1e9 + contextScore(source, at, quote, prefix, suffix) * 1e6 - Math.abs(at - hint);
     if (value > score) { best = at; score = value; }
   }
   return best;

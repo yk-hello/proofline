@@ -17,7 +17,10 @@ function WordDiff({ before, after }) {
 
 /** Full-surface review of AI changes, block by block. Nothing is written until Finish. */
 export default function ReviewView({ language, review, renderMarkdown, onApply, onDiscard }) {
-  const diff = useMemo(() => diffBlocks(review.base, review.proposed), [review.base, review.proposed]);
+  // Changes outside the user's selection are set aside unless the user asks to see them.
+  const [includeOutside, setIncludeOutside] = useState(false);
+  const proposed = includeOutside && review.unscoped ? review.unscoped : review.proposed;
+  const diff = useMemo(() => diffBlocks(review.base, proposed), [review.base, proposed]);
   const changes = diff.hunks.filter((hunk) => hunk.type === 'change');
   const [decisions, setDecisions] = useState({});
   const [mode, setMode] = useState('rendered');
@@ -29,6 +32,7 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
   const questions = [...(review.questions || new Map())];
 
   function decide(id, value) { setDecisions((current) => ({ ...current, [id]: current[id] === value ? undefined : value })); }
+  function toggleOutside() { setDecisions({}); setFocus(0); setIncludeOutside((value) => !value); }
   function decideAll(value) { setDecisions(Object.fromEntries(changes.map((hunk) => [hunk.id, value]))); }
   function finish() { onApply(composeReview(diff, decisions), decisions, diff); }
 
@@ -67,6 +71,13 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
     </header>
     <div className="review-body">
       <div className="review-scroll">
+        {review.anchorMissing?.length > 0 && <div className="review-scope warning" role="alert"><p>{t(language, 'anchorMissing', review.anchorMissing.map((n) => `#${n}`).join('、'))}</p></div>}
+        {review.unscoped && <div className={`review-scope ${includeOutside ? 'included' : ''}`}>
+          <div className="review-scope-head"><strong>{includeOutside ? t(language, 'outsideIncluded') : t(language, 'outsideTitle', review.outside?.length || 1)}</strong>
+            <button onClick={toggleOutside}>{includeOutside ? t(language, 'outsideHide') : t(language, 'outsideShow')}</button></div>
+          {!includeOutside && <><p>{t(language, 'outsideHint')}</p>
+          <ul>{(review.outside || []).slice(0, 8).map((item, index) => <li key={index}><del>{item.before.slice(0, 80) || '∅'}</del><span>→</span><ins>{item.after.slice(0, 80) || '∅'}</ins></li>)}</ul></>}
+        </div>}
         {!changes.length && <p className="review-empty">{t(language, 'noChanges')}</p>}
         {diff.hunks.map((hunk, index) => {
           if (hunk.type === 'equal') {

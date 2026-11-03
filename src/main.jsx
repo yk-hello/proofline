@@ -11,7 +11,7 @@ import { VirtualList } from './VirtualList';
 import { useReaderApi, waitForReader, pageOf, API_VERSION } from './use-reader-api';
 import { createTextAnchor, resolveTextAnchor, captureReadingSelection, findRenderedAnchor, paintReadingHighlights, clearReadingHighlights, hitTestMarks } from './reading-annotations';
 import { markStore, isRedline, numberRedlines, MARK_TYPES, REDLINE_STATUS, serializeSidecar } from './redline/marks';
-import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt } from '../electron/redline-core.mjs';
+import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors } from '../electron/redline-core.mjs';
 import { t as rt, typeLabel } from './redline/copy';
 import { readAgentSettings, restoreAgentSettings } from './redline/agents';
 import MarkPopover from './redline/MarkPopover';
@@ -26,6 +26,7 @@ import { editableParts, partAt } from './redline/sections';
 import SetupWizard from './redline/SetupWizard';
 import { findMathMatches } from './math-matches';
 import { DEFAULT_SEARCH_OPTIONS, normalizeSearchOptions, searchExpression, textMatches } from './search';
+import { findEditorMatches, paintEditorMatches, clearEditorMatches, revealRange } from './editor-search';
 import { getRecovery, storeRecovery, recoveryVersions } from './document-recovery';
 import ImageViewer from './ImageViewer';
 import {
@@ -165,6 +166,7 @@ function App() {
   const [searchOptionsDraft, setSearchOptionsDraft] = useState(DEFAULT_SEARCH_OPTIONS);
   const [searchError, setSearchError] = useState('');
   const [workspaceSearch, setWorkspaceSearch] = useState(null);
+  const [editorMatches, setEditorMatches] = useState([]);
   const workspaceSearchRequestRef = useRef(0);
   const workspaceSearchCancelRef = useRef(null);
   const [quickQuery, setQuickQuery] = useState('');
@@ -686,7 +688,9 @@ function App() {
     return { html, results, count: results.length };
   }, [markdown, isLargeDocument, activeSearchQuery, assetVersion, currentDocumentKey, searchOptions, documentAnalysis.results]);
   const renderedMarkdown = renderedDocument.html;
-  const searchResults = searchOptions.scope !== 'document' ? (workspaceSearch?.matches || []) : isLargeDocument ? documentAnalysis.results : renderedDocument.results;
+  // In the rich editor the visible text is searched directly (see editor-search.js).
+  const editorSearchActive = usingRichEditor && searchOpen && searchOptions.scope === 'document' && Boolean(activeSearchQuery.trim());
+  const searchResults = searchOptions.scope !== 'document' ? (workspaceSearch?.matches || []) : editorSearchActive ? editorMatches : isLargeDocument ? documentAnalysis.results : renderedDocument.results;
   const searchCount = searchResults.length;
   const searchableFiles = useMemo(() => {
     const seen = new Set();
@@ -1354,6 +1358,28 @@ function App() {
   useEffect(() => {
     // Search is restored per tab; submitting a query explicitly resets its index.
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (!editorSearchActive) { clearEditorMatches(); setEditorMatches((current) => (current.length ? [] : current)); return undefined; }
+    let timer = 0;
+    const scan = () => {
+      const root = document.querySelector('.markdown-editor .ProseMirror');
+      setEditorMatches(root ? findEditorMatches(root, activeSearchQuery, searchOptions, language) : []);
+    };
+    scan();
+    const host = document.querySelector('.markdown-editor');
+    const observer = host ? new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(scan, 200); }) : null;
+    observer?.observe(host, { subtree: true, childList: true, characterData: true });
+    return () => { observer?.disconnect(); clearTimeout(timer); clearEditorMatches(); };
+  }, [editorSearchActive, activeSearchQuery, searchOptions, language, editorKey, richPart?.index]);
+
+  useEffect(() => { if (editorSearchActive) paintEditorMatches(editorMatches, searchIndex); }, [editorSearchActive, editorMatches, searchIndex]);
+  const editorHasMatches = editorMatches.length > 0;
+  useEffect(() => {
+    if (!editorSearchActive || !editorHasMatches) return;
+    revealRange(editorMatches[Math.min(searchIndex, editorMatches.length - 1)]?.range, readingScrollRef.current);
+    // Only jump when the user moves to another match, not while the document is being edited.
+  }, [editorSearchActive, editorHasMatches, searchIndex, searchNavigation]);
 
   useEffect(() => {
     if (isLargeDocument) return;
@@ -2500,7 +2526,16 @@ function App() {
     const source = getDocumentSource();
     let tasks = currentTasks(source, onlyIds ? REDLINE_STATUS : undefined);
     if (onlyIds) tasks = tasks.filter((task) => onlyIds.includes(task.id));
-    return { source, tasks, prompt: buildPrompt({ mode, language, name: fileName, file: fileName, source, tasks, scope, note }) };
+    // Anchors go into a working copy only; never into the user's own file (folder scope).
+    const anchors = mode === 'agent' && scope !== 'folder' ? anchorDocument(source, tasks) : null;
+    return { source, tasks, anchors, prompt: buildPrompt({ mode, language, name: fileName, file: fileName, source, tasks, scope, note, anchors }) };
+  }
+
+  /** Read an AI result back: drop anchors and set aside anything changed outside them. */
+  function scopedReview(base, proposed, anchors) {
+    if (!anchors?.enabled) return { proposed: stripAnchors(proposed) };
+    const result = resolveAnchors(base, anchors, proposed);
+    return { proposed: result.scoped, unscoped: result.full !== result.scoped ? result.full : undefined, outside: result.outside, anchorMissing: result.missing };
   }
 
   function setMarkStatuses(updates, key = activeDocumentRef.current.key) {
@@ -2541,15 +2576,17 @@ function App() {
       await flushAutomaticSave(); await writerRef.current.jobs.get(key);
       if (activeDocumentRef.current.key !== key) throw new Error('文档已切换，请在目标文档重新发送');
       if (!savedRef.current) { const saved = await saveCurrentFile(); if (saved?.ok === false) throw new Error(saved.error || copy.saveFailed); }
-      const source = getDocumentSource(), { tasks, prompt } = promptFor('agent', scope, onlyIds, note), settings = readAgentSettings();
+      const source = getDocumentSource(), { tasks, prompt, anchors } = promptFor('agent', scope, onlyIds, note), settings = readAgentSettings();
       if (!tasks.length) throw new Error(rt(language, 'nothingToSend'));
       await storeRecovery(key, source, { saved: true, reason: 'before-ai' });
-      run = { id: null, agent, tasks, base: source, key, scope, status: 'starting', output: '', startedAt: Date.now() };
+      run = { id: null, agent, tasks, base: source, key, scope, status: 'starting', output: '', startedAt: Date.now(), anchors: anchors?.enabled ? { enabled: true, anchors: anchors.anchors } : null };
       agentRunRef.current = run; setAgentRun(run); markSent(tasks, agent, key);
       const result = await bridge.run({ adapterId: agent.kind === 'custom' ? null : agent.id, documentId: handle.id, scope, task: prompt, tasks,
+        copyText: run.anchors ? anchors.text : null, anchors: run.anchors?.anchors || null,
         custom: agent.kind === 'custom' ? { template: agent.template, name: agent.name } : null, overrides: settings.overrides, timeoutMinutes: settings.timeoutMinutes });
       if (agentRunRef.current === run || agentRunRef.current?.id === result.id) {
         run.id = result.id; run.pid = result.pid;
+        if (run.anchors && !result.anchored) run.anchors = null;
         if (run.status === 'starting') run.status = 'running';
         if (agentRunRef.current?.status === 'starting' || agentRunRef.current === run) { agentRunRef.current = run; setAgentRun({ ...run }); }
       }
@@ -2574,7 +2611,7 @@ function App() {
       agentRunRef.current = finished; setAgentRun(finished);
       if (finished.status !== 'done') { setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); return; }
       if (typeof data.proposed !== 'string') { finished.status = 'failed'; finished.diagnostic = { message: 'AI 未留下可读取的文档结果，请查看日志' }; setAgentRun({ ...finished }); setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); return; }
-      openReview({ key: run.key, base: run.base, proposed: data.proposed, tasks: run.tasks, answers: finished.answers, questions: finished.questions, sourceLabel: run.agent.name, diskBaseline: finished.diskBaseline, origin: 'agent' });
+      openReview({ key: run.key, base: run.base, ...scopedReview(run.base, data.proposed, run.anchors), tasks: run.tasks, answers: finished.answers, questions: finished.questions, sourceLabel: run.agent.name, diskBaseline: finished.diskBaseline, origin: 'agent' });
     });
     return () => { offOutput(); offDone(); offStatus?.(); };
   }, []);
@@ -2585,7 +2622,7 @@ function App() {
     const handle = desktopHandle(run.record);
     await window.prooflineReader.openFile({ file: await handle.getFile(), handle, path: handle.path });
     setAgentSettingsOpen(false);
-    openReview({ key: activeDocumentRef.current.key, base: run.base, proposed: run.proposed, tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
+    openReview({ key: activeDocumentRef.current.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors?.length ? { enabled: true, anchors: run.anchors } : null), tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
       sourceLabel: run.agentName, diskBaseline: run.scope === 'folder' ? await (await handle.getFile()).text() : undefined, origin: 'agent' });
   }
 
@@ -2599,18 +2636,20 @@ function App() {
   async function transferPackage() {
     const key = activeDocumentRef.current.key;
     if (manualTransfer?.key && manualTransfer.key !== key) throw new Error('请切回发起任务的文档');
-    const { tasks, prompt } = promptFor('agent', 'file', manualTransfer?.onlyIds || null);
+    const { tasks, prompt, anchors } = promptFor('agent', 'file', manualTransfer?.onlyIds || null);
     const handle = fileHandlesRef.current.get(key);
     if (!handle?.desktop) throw new Error(language === 'zh' ? '请在桌面版打开已保存的 Markdown 文档' : 'Open a saved document in the desktop app');
     await flushAutomaticSave(); await writerRef.current.jobs.get(key);
     if (dirtyDocumentsRef.current.has(key)) throw new Error('请先成功保存文档，再生成任务包');
-    const result = await window.mengxDesktop.handoff(handle.id, prompt, serializeSidecar(fileName, getAnnotations()));
+    const result = await window.mengxDesktop.handoff(handle.id, prompt, serializeSidecar(fileName, getAnnotations()), anchors?.enabled ? anchors.text : null);
+    if (result?.anchored) setManualTransfer((current) => current && ({ ...current, anchors: { enabled: true, anchors: anchors.anchors }, base: getDocumentSource() }));
     markSent(tasks, { name: '任务文件夹' }, key); return result;
   }
 
   function importTransfer(text, full = false) {
     if (manualTransfer?.key && activeDocumentRef.current.key !== manualTransfer.key) throw new Error('请先切回发起任务的文档');
-    if (full) openReview({ key: activeDocumentRef.current.key, base: getDocumentSource(), proposed: text, tasks: currentTasks(undefined, REDLINE_STATUS), answers: new Map(), sourceLabel: language === 'zh' ? '导入的文档' : 'Imported document', origin: 'reply' });
+    const base = getDocumentSource(), anchors = manualTransfer?.anchors && manualTransfer.base === base ? manualTransfer.anchors : null;
+    if (full) openReview({ key: activeDocumentRef.current.key, base, ...scopedReview(base, text, anchors), tasks: currentTasks(undefined, REDLINE_STATUS), answers: new Map(), sourceLabel: language === 'zh' ? '导入的文档' : 'Imported document', origin: 'reply' });
     else { const result = reviewReply(text); if (!result.ok) throw new Error(rt(language, 'pasteNothing')); }
     setManualTransfer(null); return { ok: true };
   }

@@ -326,7 +326,7 @@ class AgentRunner {
     try { return await this.start(options); } finally { this.starting = false; }
   }
 
-  async start({ adapterId, documentPath, scope = 'file', task, tasks = [], custom, overrides = {}, timeoutMinutes = 30 }) {
+  async start({ adapterId, documentPath, scope = 'file', task, tasks = [], copyText = null, anchors = null, custom, overrides = {}, timeoutMinutes = 30 }) {
     const adapter = CLI_ADAPTERS.find((item) => item.id === adapterId);
     let executable, args;
     if (custom) {
@@ -361,6 +361,11 @@ class AgentRunner {
       // Retain the proposed copy and task so interrupted runs can be recovered.
       cleanup = async () => {};
     }
+    // Precise targeting: the working copy carries numbered anchors around each marked span.
+    // Use it only when, without its anchors, it is byte-for-byte the document on disk.
+    const anchored = scope !== 'folder' && typeof copyText === 'string' && Array.isArray(anchors) && anchors.length > 0
+      && copyText.replace(/\[\[\/?PL-\d+\]\]/g, '') === original;
+    if (anchored) await fs.writeFile(file, copyText, 'utf8');
     await fs.writeFile(taskFile, task, 'utf8');
     const relativeTask = path.relative(cwd, taskFile).replaceAll(path.sep, '/');
     const values = { prompt: 'Read the file ' + relativeTask + ' in the current directory. First read the whole document it names, then carry out every instruction in it, edit that document directly, and reply in the format it asks for.', task: taskFile, file, dir: cwd };
@@ -370,7 +375,7 @@ class AgentRunner {
     const env = await envWithPath({ ...(await adapterEnvironment(adapterId, executable)), FORCE_COLOR: '0', NO_COLOR: '1', CI: '1',
       ...(hermes ? { TERMINAL_CWD: cwd } : {}) });
     if (scope !== 'folder') { try { await fs.cp(documentPath + '.assets', file + '.assets', { recursive: true, dereference: false, force: false }); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
-    const record = { id, output: '', cwd, file, scope, cleanup, documentPath, base: original, task, tasks, adapterId,
+    const record = { id, output: '', cwd, file, scope, cleanup, documentPath, base: original, task, tasks, anchors: anchored ? anchors : null, adapterId,
       agentName: adapter?.name || custom?.name || 'Custom', executable, args, startedAt: Date.now(), lastOutputAt: null, status: 'starting', cancelled: false };
     await this.persist(record);
     let child;
@@ -406,7 +411,7 @@ class AgentRunner {
       this.send('agents:done', { id, code, cancelled: record.cancelled, timedOut: Boolean(record.timedOut), output: record.output,
         reply: record.reply, model: record.model, diagnostic: record.diagnostic, storageError, proposed, durationMs: Date.now() - record.startedAt });
     });
-    return { id, executable, args, cwd, scope, pid: child.pid };
+    return { id, executable, args, cwd, scope, pid: child.pid, anchored };
   }
 
   cancel(id) { const record = this.runs.get(id); if (!record) return { ok: false }; record.cancelled = true; killTree(record.child); return { ok: true }; }

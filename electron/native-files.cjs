@@ -210,18 +210,22 @@ class NativeFiles {
     return { ok: true, path: target, source: encodeURIComponent(record.name + '.assets').replace(/[()]/g, (value) => '%' + value.charCodeAt(0).toString(16)) + '/' + name, bytes: bytes.length };
   }
 
-  async handoff(id, task, marks) {
+  async handoff(id, task, marks, copyText = null) {
     const record = await this.get(id, 'file');
     if (!this.dataStore) throw new Error('Storage unavailable');
     const dir = path.join(this.dataStore.root, 'handoffs', randomUUID());
     await fs.mkdir(dir, { recursive: true });
-    await fs.copyFile(record.path, path.join(dir, record.name));
+    // An anchored copy is used only if, without its anchors, it is exactly the file on disk.
+    const original = (await fs.readFile(record.path, 'utf8')).replace(/^\uFEFF/, '');
+    const anchored = typeof copyText === 'string' && copyText.replace(/\[\[\/?PL-\d+\]\]/g, '') === original;
+    if (anchored) await fs.writeFile(path.join(dir, record.name), copyText, 'utf8');
+    else await fs.copyFile(record.path, path.join(dir, record.name));
     await fs.writeFile(path.join(dir, 'TASK.md'), task, 'utf8');
     await fs.writeFile(path.join(dir, 'annotations.json'), marks, 'utf8');
     const assets = record.path + '.assets';
     try { await fs.cp(assets, path.join(dir, record.name + '.assets'), { recursive: true, dereference: false }); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     await fs.writeFile(path.join(dir, 'README.txt'), 'Proofline portable task\n1. Copy this entire folder to the other device.\n2. Install and log in to an AI CLI on that device, or open the document and TASK.md in your desktop AI.\n3. Ask it to follow TASK.md and edit the document.\n4. In Proofline, choose Other AI / device, then import the revised Markdown for review.\nCredentials and CLI executable paths are never transferred.\n', 'utf8');
-    return { ok: true, path: dir };
+    return { ok: true, path: dir, anchored };
   }
 
   async resource(id, source) {

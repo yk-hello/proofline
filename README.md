@@ -131,14 +131,14 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 | 项目 | Windows 10 / 11（功能验证为 x64；安装包另含 arm64） | macOS (Apple Silicon / Intel) |
 | --- | --- | --- |
 | 安装包 | 自行打包（[AGENTS.md](AGENTS.md)）：x64 / arm64 安装版 + 便携版 | 自行打包：Apple Silicon / Intel DMG + ZIP（未签名、未公证） |
-| 0.5.0 新功能（精确定位、图表、表格、统计、自由指令、重点提醒、隐藏内容提醒） | ✅ 自动化测试通过（浏览器 + Electron 桌面版）；Windows 真机实测见下方说明 | 🔶 共用代码，未在 Mac 真机实测 |
+| 0.5.0 新功能（精确定位、图表、表格、统计、自由指令、Word 图表导入导出、重点提醒、隐藏内容提醒） | ✅ 自动化测试通过（浏览器 + Electron 桌面版）；维护者已在 Windows x64 上打包安装并实测 | 🔶 共用代码，CI 的 macOS 检查通过；**0.5.0 尚未在 Mac 真机打包、安装或实测** |
 | 阅读、标记、编辑、审阅、导出 | ✅ 已验证 | ✅ Apple Silicon：`test:mac-host` 通过，arm64 打包应用的 AI 修改 → 审阅 → 写回流程通过；Intel 完整真机流程待验证 |
 | 自动查找命令行 AI | ✅ 已验证（PATH、fnm、npm 全局、启动脚本） | 🔶 shell PATH 等底层检查通过；12 个内置 CLI 均未在 Mac 实测，仅实测 Hermes 自定义命令 |
 | 安装、升级、卸载后保留数据 | ✅ 用真实安装包实测通过 | ⏳ 未测试 |
 | 默认应用、任务栏 / 程序坞 | ✅ 安装时注册，首次启动有向导 | ⏳ 未测试 |
 | 签名 | 未签名（首次运行点「更多信息 → 仍要运行」） | 未签名、未公证（首次打开需在「隐私与安全性」中允许） |
 
-Windows arm64 和 macOS Intel 能打包，但完整真机流程仍待验证，不能以打包成功代替真机通过。0.4.0 的安装包仍留在 [Releases](https://github.com/yk-hello/proofline/releases) 页面，0.5.0 起不再提供。
+Windows arm64 和 macOS Intel 能打包，但完整真机流程仍待验证，不能以打包成功代替真机通过。上表 Mac 一栏的「已验证」项来自 0.4.0 的真机测试。本项目不提供现成安装包，请按 [AGENTS.md](AGENTS.md) 自行打包。
 
 **命令行 AI 实测情况**（结果仅适用于表中环境；Mac 仅实测 Hermes 自定义命令，12 个内置 CLI 均未实测，模拟测试不代表真实 CLI 通过）：
 
@@ -240,7 +240,7 @@ npm run test:charts        # 图表、表格、统计、自由指令（需先 np
 
 **Install**: no installers are published from 0.5.0 on. Give this repository to your AI assistant and ask it to build and install Proofline; it follows [AGENTS.md](AGENTS.md) on your machine.
 
-**Platforms**: Windows x64 is tested; 0.4.0 packages remain on the [Releases](https://github.com/yk-hello/proofline/releases) page. On Apple Silicon, `test:mac-host` passed, and the packaged arm64 app completed real Hermes CLI editing via a custom command, review and write-back. None of the twelve built-in CLIs has been tested with a real CLI/account on Mac; simulated adapter tests do not establish this. Full real-device workflows on Intel Mac and Windows arm64 remain unverified. Mac builds are unsigned and not notarized; installation, upgrade/uninstall data retention and some OS interactions still need testing. See [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md).
+**Platforms**: 0.5.0 passes the automated browser and Electron tests and was built, installed and tested by the maintainer on Windows x64. 0.5.0 has not yet been built, installed or tested on a real Mac; the Mac results below come from 0.4.0. No ready-made installers are provided. On Apple Silicon (0.4.0), `test:mac-host` passed, and the packaged arm64 app completed real Hermes CLI editing via a custom command, review and write-back. None of the twelve built-in CLIs has been tested with a real CLI/account on Mac; simulated adapter tests do not establish this. Full real-device workflows on Intel Mac and Windows arm64 remain unverified. Mac builds are unsigned and not notarized; installation, upgrade/uninstall data retention and some OS interactions still need testing. See [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md).
 
 **CLI not detected?** Ask your own AI, in the terminal where you normally use it, to find its full executable path and a working non-interactive command template (the prompt above works in English too), then enter the path or a custom command under *More → AI tools*.
 

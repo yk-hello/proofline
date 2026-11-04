@@ -117,7 +117,7 @@ Optional signing: unsigned builds are normal for this project. To sign, configur
 
 - Node 22+. `npm ci`, then `npm run desktop:dev` for a hot-reloading desktop app.
 - Fast checks: `npm run test:core`, `npm run test:integration`, `npm run test:adapters`, `npm run test:model`, `npm run test:markdown`, `npm run test:math`.
-- Browser checks (need `npm run build` first; use Playwright's Chromium, or set `CHROME_PATH` / `EDGE_PATH`): `npm run test:redline`, `npm run test:ui`, `npm run test:charts`.
+- Browser checks (need `npm run build` first; use Playwright's Chromium, or set `CHROME_PATH` / `EDGE_PATH`): `npm run test:redline`, `npm run test:ui`, `npm run test:charts`, `npm run test:word` (Word import/export; uses LibreOffice for a render check if installed).
 - Desktop end-to-end (Electron; on Linux run under `xvfb-run`): `npm run test:redline-desktop`.
 - Every commit needs a DCO sign-off (`git commit -s`). See [CONTRIBUTING.md](CONTRIBUTING.md).
 - Core engine: `electron/redline-core.mjs` (tasks, prompts, anchors, review). App shell: `src/main.jsx`. Agent adapters: `electron/agents.cjs`.

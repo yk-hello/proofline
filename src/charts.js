@@ -36,7 +36,7 @@ export function parseChartSpec(text = '') {
 }
 
 export function chartDirective(spec) {
-  const parts = [`type=${spec.stacked && spec.type === 'bar' ? 'stacked' : spec.horizontal && spec.type === 'bar' ? 'hbar' : spec.type}`];
+  const parts = [`type=${spec.stacked && spec.type === 'bar' ? 'stacked' : spec.horizontal && spec.type === 'bar' ? 'hbar' : spec.type}${spec.stacked && spec.horizontal && spec.type === 'bar' ? ' horizontal' : ''}`];
   for (const key of ['title', 'unit']) if (spec[key]) parts.push(`${key}="${String(spec[key]).replaceAll('"', "'")}"`);
   return `<!-- proofline:chart ${parts.join(' ')} -->`;
 }

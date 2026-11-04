@@ -379,12 +379,12 @@ else {
         }
         case 'saveExport': {
           const name = path.basename(parameters[0]);
-          if (!/\.(md|pdf)$/i.test(name) && !/\.annotations\.json$/i.test(name)) throw new Error('Unsupported export format');
+          if (!/\.(md|pdf|docx)$/i.test(name) && !/\.annotations\.json$/i.test(name)) throw new Error('Unsupported export format');
           let filename;
           if (exportDirectory) { await fs.mkdir(exportDirectory, { recursive: true }); filename = path.join(exportDirectory, name); }
           else {
             const choice = await dialog.showSaveDialog(window, { title: '保存导出副本', defaultPath: name,
-              filters: [{ name: name.endsWith('.pdf') ? 'PDF' : name.endsWith('.json') ? 'Annotations' : 'Markdown', extensions: [name.endsWith('.pdf') ? 'pdf' : name.endsWith('.json') ? 'json' : 'md'] }] });
+              filters: [{ name: name.endsWith('.pdf') ? 'PDF' : name.endsWith('.docx') ? 'Word' : name.endsWith('.json') ? 'Annotations' : 'Markdown', extensions: [name.endsWith('.pdf') ? 'pdf' : name.endsWith('.docx') ? 'docx' : name.endsWith('.json') ? 'json' : 'md'] }] });
             if (choice.canceled) return { ok: false, cancelled: true };
             filename = choice.filePath;
           }

@@ -32,7 +32,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 
 ### 阅读
 
-- **支持格式**：Markdown（`.md` `.markdown` `.mdown` `.mkd`）、纯文本 `.txt`，以及 HTML（`.html` `.htm`）和 Word（`.docx`）。HTML 和 Word 会转成 Markdown 阅读和编辑，另存为新文件。
+- **支持格式**：Markdown（`.md` `.markdown` `.mdown` `.mkd`）、纯文本 `.txt`，以及 HTML（`.html` `.htm`）和 Word（`.docx`）。HTML 和 Word 会转成 Markdown 阅读和编辑，另存为新文件。**Word 里的原生图表**（柱状、条形、折线、面积、饼图、环形、雷达、散点）会连同数据一起变成 Proofline 图表，留在原来的位置；组合图、3D 图等会简化显示并注明，数据完整保留。
 - **长文排版**：16px 正文、1.85 行距、680px 阅读宽度，标题层级清晰。可调阅读宽度（窄 / 适中 / 宽）、代码字号和侧栏宽度。
 - **超长文档不卡**：超过 3 万字自动分块渐进渲染。在测试机上，70KB 文档约 0.3 秒打开，10MB 约 1.9 秒。
 - **公式**：KaTeX 渲染行内公式 `$…$`、`\(…\)` 和块级公式 `$$…$$`、`\[…\]`，支持 aligned、矩阵、分段函数、根号、极限等。价格里的 `$5` 不会被误当成公式。
@@ -106,7 +106,7 @@ AI 写得越来越多，人读得越来越累。Proofline 让你像批改作文�
 
 ### 导出与数据
 
-- 导出 Markdown、保存 PDF（中文字体内嵌）。
+- 导出 Markdown、保存 PDF（中文字体内嵌）、**导出 Word（.docx）**：标题、列表、引用、表格、代码、链接、图片都会保留；图表和 Mermaid 图导出为清晰图片，下方附数据表；公式保留原始写法。
 - 标记和设置保存为 JSON：默认在安装目录的 `ProoflineData`，便携版在程序旁边，Mac 在 `Proofline.app` 旁边。使用原子写入并保留上一份 `.bak`。
 - 安装目录不可写（例如装在 Program Files）时，自动改存到用户数据目录并提示。也可以在设置里迁移到别的位置。
 - **升级和卸载都会保留数据。**
@@ -228,7 +228,7 @@ npm run test:charts        # 图表、表格、统计、自由指令（需先 np
 
 **Highlights**
 
-- Reads Markdown, TXT, HTML and DOCX; fast progressive rendering for very long documents; KaTeX math, Mermaid, code highlighting, tables, footnotes; outline, reading position, search, side-by-side reading, folder workspace, bilingual UI (Chinese / English).
+- Reads Markdown, TXT, HTML and DOCX (native Word charts become Proofline charts with their data); exports Markdown, PDF and Word (charts and diagrams as pictures with the data table below); fast progressive rendering for very long documents; KaTeX math, Mermaid, code highlighting, tables, footnotes; outline, reading position, search, side-by-side reading, folder workspace, bilingual UI (Chinese / English).
 - Instruction marks (`F` `E` `D` `Q`, plus `I` for a free-form instruction and whole-document instructions) for the AI and personal marks (`H` `U` `N`) for yourself. Works across lines and paragraphs, from the toolbar or the right-click menu. Click any mark to change or remove it, with undo.
 - Every task tells the AI where the file is, asks it to read the whole document first, lists each instruction with its line number, section, marked text, your request and the original paragraph, plus your optional overall notes. When an instruction is unclear the AI asks instead of guessing; its question stays on the mark and goes back with your answer next time.
 - Twelve built-in CLI adapters (Claude Code, Codex CLI, Gemini CLI, Qwen Code, Kimi CLI, iFlow CLI, CodeBuddy Code, Qoder CLI, opencode, Cursor CLI, Copilot CLI, Aider) plus custom commands. Detection actually runs each tool and searches PATH, fnm, nvm, npm globals, Volta, Bun, pnpm and Homebrew. Connection test, sign-in helper, line numbers in every task, clear failure reasons, a diagnosis task for your own AI, and a portable task folder for any other AI or device.

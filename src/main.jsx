@@ -1531,8 +1531,12 @@ function App() {
   async function normalizeImportedFile(file) {
     const name = file.name || '';
     if (/\.docx$/i.test(name)) {
-      const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
-      return { content: htmlDocumentToMarkdown(result.value), kind: 'DOCX' };
+      // Word charts keep their data; turn each into a Proofline chart (see docx-charts.js).
+      const { extractDocxCharts, insertCharts } = await import('./docx-charts');
+      const original = await file.arrayBuffer();
+      const extracted = await extractDocxCharts(original, language).catch(() => ({ buffer: original, charts: [] }));
+      const result = await mammoth.convertToHtml({ arrayBuffer: extracted.buffer });
+      return { content: insertCharts(htmlDocumentToMarkdown(result.value), extracted.charts), kind: 'DOCX' };
     }
     if (/\.html?$/i.test(name)) {
       return { content: htmlDocumentToMarkdown(await file.text()), kind: 'HTML' };
@@ -2135,6 +2139,36 @@ function App() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setNotice(copy.exportNotice);
     return { ok: true, name: link.download, bytes: blob.size };
+  }
+
+  // Word export: charts and diagrams become pictures with their data table below.
+  async function exportWord() {
+    const name = fileName.replace(/\.(?:md|mdown|mkd|txt|markdown|html?|docx)$/i, '') + '.docx';
+    setNotice(zh ? '正在导出 Word…' : 'Exporting Word…');
+    try {
+      const [{ markdownToDocx }, { renderMermaidSvg }] = await Promise.all([import('./docx-export'), import('./mermaid-renderer')]);
+      const loadImage = async (src) => {
+        const url = /^(?:data:|blob:|https?:)/i.test(src) ? src : resolveDocumentAsset(src);
+        if (!url) return null;
+        const response = await fetch(url); if (!response.ok) return null;
+        return new Uint8Array(await response.arrayBuffer());
+      };
+      const { blob, warnings } = await markdownToDocx({ source: getDocumentSource(), title: documentTitle, language, loadImage, renderMermaid: renderMermaidSvg });
+      let result;
+      if (window.mengxDesktop) result = await saveDesktopExport(name, blob);
+      else {
+        const url = URL.createObjectURL(blob), link = document.createElement('a');
+        link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+        result = { ok: true, name, bytes: blob.size };
+      }
+      if (result?.ok !== false) setNotice(warnings.length ? (zh ? `已导出 Word；${warnings.length} 张图片没能读取，已用文字代替` : `Word exported; ${warnings.length} image(s) could not be read and were replaced with text`) : (zh ? '已导出 Word' : 'Word exported'));
+      return result;
+    } catch (error) {
+      console.error('Word export failed:', error);
+      setNotice(zh ? `导出 Word 失败：${error.message}` : `Word export failed: ${error.message}`);
+      return { ok: false, error: error.message };
+    }
   }
 
   function cancelPdf() {
@@ -3249,7 +3283,7 @@ function App() {
     showImage: (source) => { setLightbox(source ? { src: source, alt: '' } : null); return { ok: true }; },
     save: () => saveCurrentFile(),
     exportMarkdown: exportDraft,
-    exportPdf,
+    exportPdf, exportWord,
     cancelPdf,
     getPerformanceReport: () => ({ ...performanceRef.current,
       longTaskSupported: PerformanceObserver.supportedEntryTypes?.includes('longtask') || false,
@@ -3321,6 +3355,7 @@ function App() {
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setStatsOpen(true); }}><AlignLeft size={16} /><span>{zh ? '文档统计' : 'Document statistics'}</span></button>
               <button role="menuitem" aria-label={copy.export} onClick={() => { setDocumentMenuOpen(false); void exportDraft(); }}><Download size={16} /><span>{copy.export}</span></button>
               <button role="menuitem" aria-label={copy.exportPdf} disabled={Boolean(pdfProgress)} onClick={() => { setDocumentMenuOpen(false); void exportPdf(); }}><FileDown size={16} /><span>{copy.exportPdf}</span></button>
+              <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); void exportWord(); }}><FileDown size={16} /><span>{zh ? '导出 Word' : 'Export Word'}</span></button>
               <span className="menu-separator" />
               {window.mengxDesktop?.system && <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setSetupOpen(true); }}><Settings2 size={16} /><span>{zh ? '默认应用与 AI' : 'Default app and AI'}</span></button>}
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setAgentSettingsOpen(true); }}><Settings2 size={16} /><span>{rt(language, 'agentSettings')}</span></button>

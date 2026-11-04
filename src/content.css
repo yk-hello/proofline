@@ -1,15 +1,15 @@
 /* Reading typography for rendered Markdown. */
 .document-content { max-width: var(--reader-column-width); margin: 0 auto; padding: 0 0 60px; color: #2b2b2b; font-family: var(--reader-font); font-size: var(--reader-size); line-height: var(--reader-leading); overflow-wrap: break-word; font-feature-settings: "palt" 0; text-align: justify; text-justify: inter-ideograph; hanging-punctuation: allow-end; }
-.reader-font-serif { --reader-font: "Noto Serif SC", "Source Han Serif SC", "思源宋体", Georgia, serif; }
-.reader-size-small { --reader-size: 15px; }
-.reader-size-medium { --reader-size: 16px; }
-.reader-size-large { --reader-size: 18px; }
-.reader-leading-tight { --reader-leading: 1.65; }
-.reader-leading-comfortable { --reader-leading: 1.85; }
-.reader-leading-relaxed { --reader-leading: 2.05; }
-.reader-spacing-compact { --reader-paragraph-gap: .8em; }
-.reader-spacing-comfortable { --reader-paragraph-gap: 1.25em; }
-.reader-spacing-airy { --reader-paragraph-gap: 1.7em; }
+.reading-workspace .reading-layout.reader-font-serif, .reader-font-serif { --reader-font: "Noto Serif SC", "Source Han Serif SC", "思源宋体", Georgia, serif; }
+.reading-workspace .reading-layout.reader-size-small, .reader-size-small { --reader-size: 15px; }
+.reading-workspace .reading-layout.reader-size-medium, .reader-size-medium { --reader-size: 16px; }
+.reading-workspace .reading-layout.reader-size-large, .reader-size-large { --reader-size: 18px; }
+.reading-workspace .reading-layout.reader-leading-tight, .reader-leading-tight { --reader-leading: 1.65; }
+.reading-workspace .reading-layout.reader-leading-comfortable, .reader-leading-comfortable { --reader-leading: 1.85; }
+.reading-workspace .reading-layout.reader-leading-relaxed, .reader-leading-relaxed { --reader-leading: 2.05; }
+.reading-workspace .reading-layout.reader-spacing-compact, .reader-spacing-compact { --reader-paragraph-gap: .8em; }
+.reading-workspace .reading-layout.reader-spacing-comfortable, .reader-spacing-comfortable { --reader-paragraph-gap: 1.25em; }
+.reading-workspace .reading-layout.reader-spacing-airy, .reader-spacing-airy { --reader-paragraph-gap: 1.7em; }
 .document-content p { margin: 0 0 var(--reader-paragraph-gap); }
 .document-content h1, .document-content h2, .document-content h3,
 .document-content h4, .document-content h5, .document-content h6 { color: #141414; font-weight: 650; line-height: 1.45; letter-spacing: -.005em; text-align: left; scroll-margin-top: 36px; }
@@ -34,6 +34,9 @@
 .reader-code-small .document-content pre { font-size: 12px; }
 .reader-code-large .document-content pre { font-size: 15px; }
 .document-content pre.mermaid-block { position: relative; padding-top: 40px; }
+.document-content pre.mermaid-block.diagram-rendered:not(.diagram-source-visible) { display: none; }
+.document-content .pl-diagram-host, .document-content .pl-chart-block { display: block; margin: 28px 0; }
+.document-content .pl-chart-block table { margin: 0; }
 .document-content pre.mermaid-block::before { content: "MERMAID"; position: absolute; top: 12px; left: 24px; color: var(--faint); font: 500 10px var(--mono); letter-spacing: .1em; }
 .document-content .math-block { margin: 30px 0; overflow-x: auto; }
 .document-content table { width: 100%; margin: 30px 0; border-collapse: collapse; font-family: var(--ui-font); font-size: 13px; line-height: 1.7; }

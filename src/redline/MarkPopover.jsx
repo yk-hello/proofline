@@ -43,14 +43,14 @@ export default function MarkPopover({ mark, number, anchorRect, language, autoFo
     }}>
     <div className="mark-popover-head">
       <span className={`mark-chip type-${mark.type}`}>{number ? `#${number} · ` : ''}{typeLabel(language, mark.type)}</span>
-      <span className="mark-popover-quote" title={mark.anchor?.text}>{mark.anchor?.text}</span>
+      <span className="mark-popover-quote" title={mark.anchor?.text}>{mark.anchor?.document ? t(language, 'wholeDocument') : mark.anchor?.text}</span>
       <button className="icon-button quiet" aria-label={t(language, 'close')} title={`${t(language, 'close')} · Esc`} onClick={() => { commit(); onClose(); }}><X size={15} /></button>
     </div>
-    <div className="mark-type-row" role="group" aria-label={t(language, 'markType')}>
+    {!mark.anchor?.document && <div className="mark-type-row" role="group" aria-label={t(language, 'markType')}>
       {TYPES.map((type) => <button key={type} className={`mark-type type-${type} ${mark.type === type ? 'selected' : ''}`} aria-pressed={mark.type === type}
         onClick={() => { commit(); onChangeType(type); }} title={t(language, `typeHint.${type}`)}>
         <span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}
-    </div>
+    </div>}
     {showsNote && <label className="mark-note">
       <span>{isRedline(mark.type) ? t(language, 'instructionLabel') : t(language, 'noteLabel')}</span>
       <textarea ref={noteRef} value={draft} rows={3} maxLength={10000} placeholder={isRedline(mark.type) ? t(language, `placeholder.${mark.type}`) : t(language, 'placeholder.note')}

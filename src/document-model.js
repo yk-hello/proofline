@@ -26,13 +26,16 @@ export function analyzeDocument(source, progress = () => {}) {
     if (next < 0) next = source.length;
     else next += 1;
     const fullEnd = next;
-    next = Math.min(next, offset + 40000);
+    // A pasted or imported picture is one long data: line; keep it whole so it renders.
+    const imageLine = fullEnd - offset > 40000 && fullEnd - offset < 16e6 && /^ {0,3}!\[[^\]\n]*\]\(data:image\/[\w.+-]+;base64,/.test(source.slice(offset, offset + 400));
+    next = imageLine ? fullEnd : Math.min(next, offset + 40000);
     const oversizedLine = continuedLine || next < fullEnd;
     const raw = source.slice(offset, next).replace(/\r?\n$/, '');
     if (oversizedLine) {
       flush(offset);
       chunkPlain = true;
     }
+    if (imageLine && offset > start) flush(offset);
     const heading = !fence && !oversizedLine && /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(raw);
     const setext = !fence && !oversizedLine && /^ {0,3}(=+|-+)[ \t]*$/.exec(raw)
       && previousLine && previousLine.text.trim() && !/^\s*(?:[#>|]|[-*+]\s|\d+\.\s|\[.*\]:)/.test(previousLine.text);
@@ -60,14 +63,15 @@ export function analyzeDocument(source, progress = () => {}) {
         summary = raw.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim().slice(0, 180);
       }
     }
-    wordCount += (raw.match(/[\u3400-\u9fff]/g)?.length || 0) + (raw.match(/[A-Za-z0-9_]+/g)?.length || 0);
+    const counted = raw.length > 2000 ? raw.replace(/\(data:[^)\s]*\)/g, '') : raw;
+    wordCount += (counted.match(/[\u3400-\u9fff]/g)?.length || 0) + (counted.match(/[A-Za-z0-9_]+/g)?.length || 0);
     if (next === fullEnd) line += 1;
     continuedLine = next < fullEnd;
     previousLine = !fence && !oversizedLine ? { text: raw, offset, line: line - 1 } : null;
     offset = next;
     // An enormous single block still gets bounded rendering; its fallback is plain text.
     if (oversizedLine || offset - start >= 40000) {
-      if (Boolean(fence) || !heading || oversizedLine) chunkPlain = true;
+      if (Boolean(fence) || (!heading && !imageLine) || oversizedLine) chunkPlain = true;
       flush(offset);
     }
     const percent = Math.floor(offset / Math.max(source.length, 1) * 100);
@@ -110,6 +114,18 @@ export function sourceForChunk(source, chunk, model) {
   return appended.length ? `${body}\n\n${appended.join('\n\n')}` : body;
 }
 
+// Show what the reader sees in the result list, not Markdown syntax.
+export function plainSnippet(value, cut = false) {
+  const text = value
+    .replace(/^\s*(?:#{1,6}|>+|[-*+]|\d+[.)])\s+/, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|~~|`)/g, '')
+    .replace(/\s*\|\s*/g, ' · ')
+    .replace(/\s+/g, ' ').trim();
+  return (cut ? '…' : '') + text.replace(/^· | ·$/g, '');
+}
+
 export function searchDocument(source, query, model, options = {}) {
   if (!query.trim()) return [];
   const results = [];
@@ -122,8 +138,8 @@ export function searchDocument(source, query, model, options = {}) {
       const at = match.index;
       while (model.chunks[chunkIndex + 1]?.start <= offset + at) chunkIndex += 1;
       results.push({ index: results.length, offset: offset + at, length: match.length, text: match.text, line, chunk: chunkIndex,
-        location: /^#{1,6}\s/.test(text) ? '标题' : '正文',
-        snippet: text.slice(Math.max(0, at - 40), Math.min(text.length, at + match.length + 70)).trim() });
+        location: /^#{1,6}\s/.test(text) ? '标题' : /^\s*\|/.test(text) ? '表格' : /^\s*>/.test(text) ? '引用' : /^\s*(?:[-*+]|\d+[.)])\s/.test(text) ? '列表' : '正文',
+        snippet: plainSnippet(text.slice(Math.max(0, at - 40), Math.min(text.length, at + match.length + 70)), at > 40) });
     }
     line += 1; offset = end + 1;
   }

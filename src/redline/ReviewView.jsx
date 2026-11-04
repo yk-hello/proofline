@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { diffArrays } from 'diff';
 import { Check, X, ChevronDown, ChevronRight } from 'lucide-react';
-import { diffBlocks, composeReview, tasksForHunk } from '../../electron/redline-core.mjs';
+import { diffBlocks, composeReview, tasksForHunk, changeRisks } from '../../electron/redline-core.mjs';
 import { t, typeLabel, modifierKey } from './copy';
 
 const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
@@ -17,7 +17,10 @@ function WordDiff({ before, after }) {
 
 /** Full-surface review of AI changes, block by block. Nothing is written until Finish. */
 export default function ReviewView({ language, review, renderMarkdown, onApply, onDiscard }) {
-  const diff = useMemo(() => diffBlocks(review.base, review.proposed), [review.base, review.proposed]);
+  // Changes outside the user's selection are set aside unless the user asks to see them.
+  const [includeOutside, setIncludeOutside] = useState(false);
+  const proposed = includeOutside && review.unscoped ? review.unscoped : review.proposed;
+  const diff = useMemo(() => diffBlocks(review.base, proposed), [review.base, proposed]);
   const changes = diff.hunks.filter((hunk) => hunk.type === 'change');
   const [decisions, setDecisions] = useState({});
   const [mode, setMode] = useState('rendered');
@@ -25,10 +28,14 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
   const [focus, setFocus] = useState(0);
   const refs = useRef(new Map());
   const decided = changes.filter((hunk) => decisions[hunk.id]).length;
+  const blockText = (indexes, blocks) => indexes.map((i) => blocks[i].text).join('');
+  const risks = useMemo(() => new Map(changes.map((hunk) => [hunk.id, changeRisks(blockText(hunk.base, diff.baseBlocks), blockText(hunk.next, diff.nextBlocks))])), [diff]);
+  const risky = changes.filter((hunk) => risks.get(hunk.id)?.length).length;
   const answers = [...(review.answers || new Map())];
   const questions = [...(review.questions || new Map())];
 
   function decide(id, value) { setDecisions((current) => ({ ...current, [id]: current[id] === value ? undefined : value })); }
+  function toggleOutside() { setDecisions({}); setFocus(0); setIncludeOutside((value) => !value); }
   function decideAll(value) { setDecisions(Object.fromEntries(changes.map((hunk) => [hunk.id, value]))); }
   function finish() { onApply(composeReview(diff, decisions), decisions, diff); }
 
@@ -54,7 +61,7 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
     <header className="review-bar">
       <div className="review-title">
         <strong>{t(language, 'reviewTitle')}</strong>
-        <span>{t(language, 'reviewFrom', review.sourceLabel)} · {t(language, 'changeCount', changes.length)} · {t(language, 'decided', decided, changes.length)}</span>
+        <span>{t(language, 'reviewFrom', review.sourceLabel)} · {t(language, 'changeCount', changes.length)} · {t(language, 'decided', decided, changes.length)}{risky > 0 && <> · <b className="review-risk-count">{t(language, 'riskCount', risky)}</b></>}</span>
       </div>
       <div className="segmented" role="group">
         <button className={mode === 'rendered' ? 'selected' : ''} aria-pressed={mode === 'rendered'} onClick={() => setMode('rendered')}>{t(language, 'showRendered')}</button>
@@ -67,6 +74,13 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
     </header>
     <div className="review-body">
       <div className="review-scroll">
+        {review.anchorMissing?.length > 0 && <div className="review-scope warning" role="alert"><p>{t(language, 'anchorMissing', review.anchorMissing.map((n) => `#${n}`).join('、'))}</p></div>}
+        {review.unscoped && <div className={`review-scope ${includeOutside ? 'included' : ''}`}>
+          <div className="review-scope-head"><strong>{includeOutside ? t(language, 'outsideIncluded') : t(language, 'outsideTitle', review.outside?.length || 1)}</strong>
+            <button onClick={toggleOutside}>{includeOutside ? t(language, 'outsideHide') : t(language, 'outsideShow')}</button></div>
+          {!includeOutside && <><p>{t(language, 'outsideHint')}</p>
+          <ul>{(review.outside || []).slice(0, 8).map((item, index) => <li key={index}><del>{item.before.slice(0, 80) || '∅'}</del><span>→</span><ins>{item.after.slice(0, 80) || '∅'}</ins></li>)}</ul></>}
+        </div>}
         {!changes.length && <p className="review-empty">{t(language, 'noChanges')}</p>}
         {diff.hunks.map((hunk, index) => {
           if (hunk.type === 'equal') {
@@ -86,6 +100,8 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
             <div className="review-hunk-head">
               <span className="review-hunk-number">{String(position + 1).padStart(2, '0')}</span>
               {related.map((task) => <span key={task.id} className={`mark-chip type-${task.type}`}>#{task.n} {typeLabel(language, task.type)}</span>)}
+              {(risks.get(hunk.id) || []).map((risk) => <span key={risk.kind} className={`review-risk risk-${risk.kind}`} title={t(language, `riskHint.${risk.kind}`)}>
+                {t(language, `risk.${risk.kind}`)}{risk.lost || risk.gained ? <small>{(risk.lost || []).join(' ') || '∅'} → {(risk.gained || []).join(' ') || '∅'}</small> : null}</span>)}
               <span className="spacer" />
               <button className={`review-choice reject ${decision === 'reject' ? 'selected' : ''}`} aria-pressed={decision === 'reject'} onClick={() => decide(hunk.id, 'reject')}><X size={14} />{decision === 'reject' ? t(language, 'rejected') : t(language, 'reject')}<kbd>R</kbd></button>
               <button className={`review-choice accept ${decision === 'accept' ? 'selected' : ''}`} aria-pressed={decision === 'accept'} onClick={() => decide(hunk.id, 'accept')}><Check size={14} />{decision === 'accept' ? t(language, 'accepted') : t(language, 'accept')}<kbd>A</kbd></button>

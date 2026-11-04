@@ -5,7 +5,7 @@ import { customAgents, readAgentSettings, writeAgentSettings } from './agents';
 
 const GROUP_ICONS = { cli: Terminal, custom: Wrench };
 
-export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings }) {
+export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings, hidden = [] }) {
   const [settings, setSettings] = useState(readAgentSettings);
   const [detected, setDetected] = useState(null);
   const [selected, setSelected] = useState(settings.lastAgent);
@@ -93,6 +93,11 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
           <span><strong>{t(language, value === 'file' ? 'scopeFile' : 'scopeFolder')}</strong><small>{t(language, value === 'file' ? 'scopeFileHint' : 'scopeFolderHint')}</small></span>
         </label>)}
       </fieldset>}
+      {hidden.length > 0 && <div className="send-hidden" role="alert">
+        <strong>{t(language, 'hiddenTitle', hidden.length)}</strong>
+        <p>{t(language, 'hiddenHint')}</p>
+        <ul>{hidden.slice(0, 4).map((item, index) => <li key={index}><span>{t(language, 'lineNo', item.line)} · {t(language, `hidden.${item.kind}`)}</span><code>{item.text}</code></li>)}</ul>
+      </div>}
       {localKind && <label className="send-note">
         <span>{t(language, 'extraNote')}</span>
         <textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, 'extraNoteHint')} />

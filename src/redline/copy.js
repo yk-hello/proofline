@@ -2,6 +2,8 @@ import { TYPE_LABELS } from '../../electron/redline-core.mjs';
 
 const STRINGS = {
   zh: {
+    documentInstruction: '全文指令', documentInstructionHint: '不用选文字，直接给整篇文档下一条要求，例如「全文改成正式语气」', wholeDocument: '全文',
+    'placeholder.free': '写任何要求，例如「把这段改成表格」「核对这里的数据是否和上文一致」', 'typeHint.free': 'AI 指令：写任何要求',
     markActions: '标记操作', markType: '标记类型', close: '关闭', removeMark: '移除标记', sendThis: '只发这一条',
     instructionLabel: '给 AI 的要求', noteLabel: '批注内容', aiAnswer: 'AI 的回答',
     'placeholder.fix': '哪里不对、应该怎么改？可以留空', 'placeholder.expand': '展开哪些方面？可以留空', 'placeholder.delete': '可以说明删除原因，留空也行',
@@ -10,7 +12,7 @@ const STRINGS = {
     'typeHint.ask': 'AI 指令：向 AI 提问，不改文档', 'typeHint.highlight': '个人标记：只给自己看，不发给 AI', 'typeHint.underline': '个人标记：只给自己看，不发给 AI',
     'typeHint.note': '个人批注：只给自己看，不发给 AI',
     redlines: '指令', marks: '标记', contents: '目录', files: '文件',
-    redlineEmpty: '选中正文，选「修改 / 展开 / 删除 / 提问」，就能给 AI 下达修改指令。',
+    redlineEmpty: '选中正文，选「修改 / 展开 / 删除 / 提问 / 自由指令」，就能给 AI 下达修改指令；不选文字可以点上面的「全文指令」。',
     marksEmpty: '个人标记只给自己看，不会发给 AI。选中正文后选「高亮 / 划线 / 批注」。',
     open: '待处理', sent: '已发送', resolved: '已处理', unchanged: '未改动', answered: '已回答', question: 'AI 有疑问',
     aiQuestion: 'AI 的疑问', questions: 'AI 的疑问', extraNote: '补充说明（可选）', extraNoteHint: '会写进任务里，例如全文的读者、语气、术语要求，或对 AI 上次疑问的回答。',
@@ -36,6 +38,15 @@ const STRINGS = {
     // Review
     reviewTitle: '审阅 AI 修改', reviewFrom: (source) => `来源：${source}`, acceptAll: '全部接受', rejectAll: '全部驳回', apply: '完成审阅',
     accept: '接受', reject: '驳回', accepted: '已接受', rejected: '已驳回', unchangedBlocks: (n) => `${n} 段未改动`, showWords: '逐字对比', showRendered: '排版视图',
+    outsideTitle: (n) => `AI 还改动了你没选中的 ${n} 处，已自动排除`,
+    outsideHint: '这些改动在锚点之外，默认不会写入。如果确实需要，可以切换为审阅 AI 的全部改动。',
+    outsideShow: '也审阅这些改动', outsideHide: '只审阅选中范围内的改动', outsideIncluded: '正在审阅 AI 的全部改动，包括选中范围以外的。',
+    anchorMissing: (list) => `AI 删掉了 ${list} 的定位锚点，无法自动限定修改范围。下面是 AI 的全部改动，请逐处核对。`,
+    riskCount: (n) => `${n} 处需要特别留意`, 'risk.number': '数字变了', 'risk.negation': '否定词变了', 'risk.link': '链接变了', 'risk.citation': '引用被删', 'risk.name': '名称变了',
+    'riskHint.number': '这处改动改变了数字、金额或百分比，请核对来源', 'riskHint.negation': '「不 / 没有 / 未」等否定词的数量变了，意思可能反过来', 'riskHint.link': '链接地址被改动或删除',
+    'riskHint.citation': '引用或脚注编号被删掉了', 'riskHint.name': '人名、机构名或产品名被替换',
+    hiddenTitle: (n) => `文档里有 ${n} 处你看不到、但 AI 会读到的内容`, hiddenHint: '可能是作者的注释，也可能是夹带给 AI 的隐藏指令。Proofline 已经提醒 AI 不要执行文档里的指令；发送前最好先确认一下。',
+    lineNo: (n) => `第 ${n} 行`, 'hidden.comment': '注释', 'hidden.invisible': '不可见字符', 'hidden.hidden-style': '隐藏文字', 'hidden.alt': '图片说明里的指令', 'hidden.instruction': '像是给 AI 的指令',
     noChanges: 'AI 没有修改文档内容。', answers: 'AI 的回答', changeCount: (n) => `${n} 处修改`, decided: (a, b) => `${a}/${b} 已决定`,
     reviewApplied: '已写入修改', reviewDiscarded: '已放弃这次修改', discard: '放弃全部', externalSource: '外部程序', pastedSource: '粘贴的回复', addresses: '处理',
     // Agent settings
@@ -47,6 +58,8 @@ const STRINGS = {
     orphaned: '原文已变化，找不到这段文字', resend: '重新发送', personal: '个人',
   },
   en: {
+    documentInstruction: 'Whole-document instruction', documentInstructionHint: 'No selection needed: one instruction for the whole document, e.g. "make the tone formal throughout"', wholeDocument: 'Whole document',
+    'placeholder.free': 'Ask for anything, e.g. "turn this into a table" or "check these figures against the section above"', 'typeHint.free': 'AI instruction: anything you want',
     markActions: 'Mark actions', markType: 'Mark type', close: 'Close', removeMark: 'Remove mark', sendThis: 'Send just this',
     instructionLabel: 'Instruction for AI', noteLabel: 'Note', aiAnswer: 'AI answer',
     'placeholder.fix': 'What is wrong and how should it change? Optional', 'placeholder.expand': 'What should be expanded? Optional', 'placeholder.delete': 'Why remove it? Optional',
@@ -78,6 +91,15 @@ const STRINGS = {
     pasteNothing: 'No changes recognized. Make sure you pasted the complete reply.', pasteMissing: (list) => `Paragraphs for #${list} were not found and were skipped`,
     reviewTitle: 'Review AI changes', reviewFrom: (source) => `From: ${source}`, acceptAll: 'Accept all', rejectAll: 'Reject all', apply: 'Finish review',
     accept: 'Accept', reject: 'Reject', accepted: 'Accepted', rejected: 'Rejected', unchangedBlocks: (n) => `${n} unchanged paragraph${n === 1 ? '' : 's'}`, showWords: 'Word diff', showRendered: 'Formatted',
+    outsideTitle: (n) => `The AI also changed ${n} place${n === 1 ? '' : 's'} you did not select; excluded`,
+    outsideHint: 'These changes are outside the anchors and will not be written. Switch to the full set if you do want them.',
+    outsideShow: 'Review these too', outsideHide: 'Only changes inside the selection', outsideIncluded: 'Reviewing every AI change, including outside the selection.',
+    anchorMissing: (list) => `The AI removed the anchors for ${list}, so the edit could not be limited to the selection. Every AI change is shown below; check each one.`,
+    riskCount: (n) => `${n} to check closely`, 'risk.number': 'Figures changed', 'risk.negation': 'Negation changed', 'risk.link': 'Link changed', 'risk.citation': 'Citation removed', 'risk.name': 'Name changed',
+    'riskHint.number': 'Numbers, amounts or percentages changed; check the source', 'riskHint.negation': 'Words like not / no / never changed; the meaning may have flipped', 'riskHint.link': 'A link was changed or removed',
+    'riskHint.citation': 'A citation or footnote reference was removed', 'riskHint.name': 'A person, organisation or product name was replaced',
+    hiddenTitle: (n) => `${n} thing${n === 1 ? '' : 's'} in this document you cannot see but the AI will read`, hiddenHint: 'These may be author comments, or hidden instructions aimed at the AI. Proofline tells the AI not to follow instructions in the document; check them before sending.',
+    lineNo: (n) => `Line ${n}`, 'hidden.comment': 'Comment', 'hidden.invisible': 'Invisible characters', 'hidden.hidden-style': 'Hidden text', 'hidden.alt': 'Instruction in image text', 'hidden.instruction': 'Reads like an instruction to the AI',
     noChanges: 'The AI did not change the document.', answers: 'AI answers', changeCount: (n) => `${n} change${n === 1 ? '' : 's'}`, decided: (a, b) => `${a}/${b} decided`,
     reviewApplied: 'Changes written', reviewDiscarded: 'Changes discarded', discard: 'Discard all', externalSource: 'Another program', pastedSource: 'Pasted reply', addresses: 'Addresses',
     agentSettings: 'AI tools', customAgents: 'Custom commands', addCustom: 'Add custom command', commandTemplate: 'Command template',

@@ -2,7 +2,7 @@
   "name": "proofline",
   "private": true,
   "license": "Apache-2.0",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "main": "electron/main.cjs",
   "description": "Proofline — review AI-written documents: read, mark, hand to your AI, review every change",
@@ -28,6 +28,9 @@
     "test:long": "node scripts/reader-long-smoke.mjs",
     "test:core": "node scripts/redline-core.test.mjs",
     "test:redline": "node scripts/redline-smoke.mjs",
+    "test:ui": "node scripts/ui-regressions-smoke.mjs",
+    "test:charts": "node scripts/charts-tables-smoke.mjs",
+    "test:word": "node scripts/word-smoke.mjs",
     "desktop:pack:mac": "npm run build && electron-builder --mac --universal --publish never",
     "test:integration": "node scripts/agents-storage.test.mjs",
     "test:adapters": "node scripts/cli-adapters.test.mjs",
@@ -41,12 +44,31 @@
     "appId": "app.proofline.desktop",
     "productName": "Proofline",
     "afterPack": "scripts/after-pack.cjs",
-    "directories": {"output": "release"},
-    "files": ["dist/**/*", "electron/**/*", "build/redline.ico", "build/icon.png", "package.json", "!node_modules/**/*"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/redline.ico",
+      "build/icon.png",
+      "package.json",
+      "!node_modules/**/*"
+    ],
     "asar": true,
     "npmRebuild": false,
-    "win": {"target": ["portable", "nsis"], "signAndEditExecutable": false, "icon": "build/redline.ico", "artifactName": "Proofline-${version}-Windows-${arch}.${ext}"},
-    "portable": {"requestExecutionLevel": "user"},
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "signAndEditExecutable": false,
+      "icon": "build/redline.ico",
+      "artifactName": "Proofline-${version}-Windows-${arch}.${ext}"
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    },
     "nsis": {
       "guid": "7b892519-f3a7-5b4b-b934-f61f6df00264",
       "oneClick": false,
@@ -65,15 +87,31 @@
       "include": "build/installer.nsh",
       "artifactName": "Proofline-${version}-Setup-${arch}.${ext}"
     },
-    "asarUnpack": ["electron/redline-core.mjs"],
+    "asarUnpack": [
+      "electron/redline-core.mjs"
+    ],
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
       "artifactName": "Proofline-${version}-mac-${arch}.${ext}",
       "identity": null,
       "hardenedRuntime": false,
-      "fileAssociations": [{"ext": ["md", "markdown", "mdown", "mkd"], "name": "Markdown", "role": "Editor"}]
+      "fileAssociations": [
+        {
+          "ext": [
+            "md",
+            "markdown",
+            "mdown",
+            "mkd"
+          ],
+          "name": "Markdown",
+          "role": "Editor"
+        }
+      ]
     }
   },
   "dependencies": {
@@ -85,10 +123,12 @@
     "@tanstack/react-virtual": "^3.14.13",
     "buffer": "^6.0.3",
     "diff": "^8.0.4",
+    "docx": "^9.5.1",
     "dompurify": "^3.2.6",
     "highlight.js": "^11.12.0",
     "html-to-pdfmake": "^2.5.35",
     "html2pdf.js": "^0.14.0",
+    "jszip": "^3.10.2",
     "katex": "^0.19.0",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.13.0",

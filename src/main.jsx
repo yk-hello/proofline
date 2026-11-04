@@ -11,7 +11,7 @@ import { VirtualList } from './VirtualList';
 import { useReaderApi, waitForReader, pageOf, API_VERSION } from './use-reader-api';
 import { createTextAnchor, resolveTextAnchor, captureReadingSelection, findRenderedAnchor, paintReadingHighlights, clearReadingHighlights, hitTestMarks } from './reading-annotations';
 import { markStore, isRedline, numberRedlines, MARK_TYPES, REDLINE_STATUS, serializeSidecar } from './redline/marks';
-import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt } from '../electron/redline-core.mjs';
+import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors, hiddenContent } from '../electron/redline-core.mjs';
 import { t as rt, typeLabel } from './redline/copy';
 import { readAgentSettings, restoreAgentSettings } from './redline/agents';
 import MarkPopover from './redline/MarkPopover';
@@ -26,6 +26,10 @@ import { editableParts, partAt } from './redline/sections';
 import SetupWizard from './redline/SetupWizard';
 import { findMathMatches } from './math-matches';
 import { DEFAULT_SEARCH_OPTIONS, normalizeSearchOptions, searchExpression, textMatches } from './search';
+import { findEditorMatches, paintEditorMatches, clearEditorMatches, revealRange } from './editor-search';
+import { hydrateWidgets } from './charts';
+import { enhanceTables, sortTable, totalRowMarkdown, appendTableRow, documentStats } from './table-tools';
+import StatsDialog from './redline/StatsDialog';
 import { getRecovery, storeRecovery, recoveryVersions } from './document-recovery';
 import ImageViewer from './ImageViewer';
 import {
@@ -165,11 +169,14 @@ function App() {
   const [searchOptionsDraft, setSearchOptionsDraft] = useState(DEFAULT_SEARCH_OPTIONS);
   const [searchError, setSearchError] = useState('');
   const [workspaceSearch, setWorkspaceSearch] = useState(null);
+  const [editorMatches, setEditorMatches] = useState([]);
   const workspaceSearchRequestRef = useRef(0);
   const workspaceSearchCancelRef = useRef(null);
   const [quickQuery, setQuickQuery] = useState('');
   const [pathOpen, setPathOpen] = useState(false);
   const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const tableActionsRef = useRef(null);
   const [readingMode, setReadingMode] = useState(true);
   const [referenceName, setReferenceName] = useState('阅读器架构.txt');
   const [referenceMarkdown, setReferenceMarkdown] = useState(REFERENCE_DOCUMENT);
@@ -686,7 +693,9 @@ function App() {
     return { html, results, count: results.length };
   }, [markdown, isLargeDocument, activeSearchQuery, assetVersion, currentDocumentKey, searchOptions, documentAnalysis.results]);
   const renderedMarkdown = renderedDocument.html;
-  const searchResults = searchOptions.scope !== 'document' ? (workspaceSearch?.matches || []) : isLargeDocument ? documentAnalysis.results : renderedDocument.results;
+  // In the rich editor the visible text is searched directly (see editor-search.js).
+  const editorSearchActive = usingRichEditor && searchOpen && searchOptions.scope === 'document' && Boolean(activeSearchQuery.trim());
+  const searchResults = searchOptions.scope !== 'document' ? (workspaceSearch?.matches || []) : editorSearchActive ? editorMatches : isLargeDocument ? documentAnalysis.results : renderedDocument.results;
   const searchCount = searchResults.length;
   const searchableFiles = useMemo(() => {
     const seen = new Set();
@@ -844,9 +853,57 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Charts and Mermaid diagrams in rendered Markdown (reading view, split view, review).
+  useEffect(() => {
+    const area = document.querySelector('.main-area');
+    if (!area) return undefined;
+    const labels = language === 'zh'
+      ? { data: '数据', source: '源码', mark: '对图表下指令', markHint: '选中整个图表的数据，给 AI 下指令', failed: '图表无法渲染' }
+      : { data: 'Data', source: 'Source', mark: 'Instruct on chart', markHint: 'Select the whole chart data to give the AI an instruction', failed: 'Diagram could not be rendered' };
+    const renderMermaid = (source) => import('./mermaid-renderer').then(({ renderMermaidSvg }) => renderMermaidSvg(source));
+    const tableLabels = language === 'zh'
+      ? { sum: '合计', average: '平均', insert: '插入为合计行', insertHint: '把合计写进文档，作为表格最后一行', sortHint: '点击排序（只改变显示顺序，不改文档）' }
+      : { sum: 'Total', average: 'Average', insert: 'Insert as total row', insertHint: 'Write the totals into the document as the last table row', sortHint: 'Click to sort (display only; the document is unchanged)' };
+    let frame = 0;
+    const run = () => {
+      frame = 0;
+      area.querySelectorAll('.document-content').forEach((root) => {
+        if (root.closest('.markdown-editor')) return;
+        hydrateWidgets(root, { renderMermaid, labels });
+        if (root.closest('.reading-column, .reference-column')) enhanceTables(root, tableLabels);
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(run); };
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(area, { childList: true, subtree: true });
+    // "Instruct on chart": select the chart's data (or diagram source) and open the mark tools.
+    const selectComponent = (event) => {
+      const node = event.detail?.node; if (!node) return;
+      const range = document.createRange(); range.selectNodeContents(node);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      requestAnimationFrame(() => document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })));
+    };
+    area.addEventListener('proofline:select-component', selectComponent);
+    const onTableClick = (event) => {
+      const insert = event.target.closest?.('.pl-insert-total');
+      if (insert) { event.preventDefault(); event.stopPropagation(); tableActionsRef.current?.insertTotal(insert.closest('table')); return; }
+      const header = event.target.closest?.('th[data-pl-sort]');
+      if (header && !window.getSelection()?.toString() && header.closest('.reading-column, .reference-column')) sortTable(header.closest('table'), Number(header.dataset.plColumn));
+    };
+    area.addEventListener('click', onTableClick, true);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); area.removeEventListener('proofline:select-component', selectComponent); area.removeEventListener('click', onTableClick, true); };
+  }, [language]);
+
   useEffect(() => {
     const changed = () => {
       if (sourceView) { setSelectionTools(null); return; }
+      const anchorNode = window.getSelection()?.anchorNode;
+      if (anchorNode && (anchorNode.nodeType === 1 ? anchorNode : anchorNode.parentElement)?.closest?.('table[data-sorted]')) {
+        selectedPassageRef.current = null; setSelectionTools(null);
+        setNotice(language === 'zh' ? '表格已按列排序，只是显示顺序变了。要标记表格里的内容，请先点表头恢复原顺序。' : 'This table is sorted for display. Click the header to restore the original order before marking it.');
+        return;
+      }
       const captured = captureReadingSelection(articleRef.current, getDocumentSource(), documentAnalysis.chunks);
       selectedPassageRef.current = captured?.anchor || null;
       setSelectionTools(captured ? { left: Math.max(8, Math.min(window.innerWidth - 240, captured.rect.left)), top: Math.max(62, Math.min(window.innerHeight - 48, captured.rect.bottom + 8)) } : null);
@@ -1356,6 +1413,28 @@ function App() {
   }, [searchQuery]);
 
   useEffect(() => {
+    if (!editorSearchActive) { clearEditorMatches(); setEditorMatches((current) => (current.length ? [] : current)); return undefined; }
+    let timer = 0;
+    const scan = () => {
+      const root = document.querySelector('.markdown-editor .ProseMirror');
+      setEditorMatches(root ? findEditorMatches(root, activeSearchQuery, searchOptions, language) : []);
+    };
+    scan();
+    const host = document.querySelector('.markdown-editor');
+    const observer = host ? new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(scan, 200); }) : null;
+    observer?.observe(host, { subtree: true, childList: true, characterData: true });
+    return () => { observer?.disconnect(); clearTimeout(timer); clearEditorMatches(); };
+  }, [editorSearchActive, activeSearchQuery, searchOptions, language, editorKey, richPart?.index]);
+
+  useEffect(() => { if (editorSearchActive) paintEditorMatches(editorMatches, searchIndex); }, [editorSearchActive, editorMatches, searchIndex]);
+  const editorHasMatches = editorMatches.length > 0;
+  useEffect(() => {
+    if (!editorSearchActive || !editorHasMatches) return;
+    revealRange(editorMatches[Math.min(searchIndex, editorMatches.length - 1)]?.range, readingScrollRef.current);
+    // Only jump when the user moves to another match, not while the document is being edited.
+  }, [editorSearchActive, editorHasMatches, searchIndex, searchNavigation]);
+
+  useEffect(() => {
     if (isLargeDocument) return;
     if (!activeSearchQuery.trim() || !searchCount || !articleRef.current) return;
     articleRef.current.querySelectorAll('.active-search-hit').forEach((node) => node.classList.remove('active-search-hit'));
@@ -1371,7 +1450,7 @@ function App() {
       if (markPopover && !typing && ['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); removeAnnotation(markPopover.id); return; }
       if (!typing && (event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); openSendDialog(); return; }
       if (!typing && readingMode && selectionTools && selectedPassageRef.current && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const type = { f: 'fix', e: 'expand', d: 'delete', q: 'ask', h: 'highlight', u: 'underline', n: 'note' }[event.key.toLowerCase()];
+        const type = { f: 'fix', e: 'expand', d: 'delete', q: 'ask', i: 'free', h: 'highlight', u: 'underline', n: 'note' }[event.key.toLowerCase()];
         if (type) { event.preventDefault(); startAnnotation(type); return; }
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
@@ -1452,8 +1531,12 @@ function App() {
   async function normalizeImportedFile(file) {
     const name = file.name || '';
     if (/\.docx$/i.test(name)) {
-      const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
-      return { content: htmlDocumentToMarkdown(result.value), kind: 'DOCX' };
+      // Word charts keep their data; turn each into a Proofline chart (see docx-charts.js).
+      const { extractDocxCharts, insertCharts, restoreProoflineObjects } = await import('./docx-charts');
+      const original = await file.arrayBuffer();
+      const extracted = await extractDocxCharts(original, language).catch(() => ({ buffer: original, charts: [] }));
+      const result = await mammoth.convertToHtml({ arrayBuffer: extracted.buffer });
+      return { content: restoreProoflineObjects(insertCharts(htmlDocumentToMarkdown(result.value), extracted.charts)), kind: 'DOCX' };
     }
     if (/\.html?$/i.test(name)) {
       return { content: htmlDocumentToMarkdown(await file.text()), kind: 'HTML' };
@@ -2058,6 +2141,36 @@ function App() {
     return { ok: true, name: link.download, bytes: blob.size };
   }
 
+  // Word export: charts and diagrams become pictures with their data table below.
+  async function exportWord() {
+    const name = fileName.replace(/\.(?:md|mdown|mkd|txt|markdown|html?|docx)$/i, '') + '.docx';
+    setNotice(zh ? '正在导出 Word…' : 'Exporting Word…');
+    try {
+      const [{ markdownToDocx }, { renderMermaidSvg }] = await Promise.all([import('./docx-export'), import('./mermaid-renderer')]);
+      const loadImage = async (src) => {
+        const url = /^(?:data:|blob:|https?:)/i.test(src) ? src : resolveDocumentAsset(src);
+        if (!url) return null;
+        const response = await fetch(url); if (!response.ok) return null;
+        return new Uint8Array(await response.arrayBuffer());
+      };
+      const { blob, warnings } = await markdownToDocx({ source: getDocumentSource(), title: documentTitle, language, loadImage, renderMermaid: renderMermaidSvg });
+      let result;
+      if (window.mengxDesktop) result = await saveDesktopExport(name, blob);
+      else {
+        const url = URL.createObjectURL(blob), link = document.createElement('a');
+        link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+        result = { ok: true, name, bytes: blob.size };
+      }
+      if (result?.ok !== false) setNotice(warnings.length ? (zh ? `已导出 Word；${warnings.length} 张图片没能读取，已用文字代替` : `Word exported; ${warnings.length} image(s) could not be read and were replaced with text`) : (zh ? '已导出 Word' : 'Word exported'));
+      return result;
+    } catch (error) {
+      console.error('Word export failed:', error);
+      setNotice(zh ? `导出 Word 失败：${error.message}` : `Word export failed: ${error.message}`);
+      return { ok: false, error: error.message };
+    }
+  }
+
   function cancelPdf() {
     if (!pdfBusyRef.current) return { ok: true, cancelled: false };
     pdfCancelRef.current = true;
@@ -2500,7 +2613,16 @@ function App() {
     const source = getDocumentSource();
     let tasks = currentTasks(source, onlyIds ? REDLINE_STATUS : undefined);
     if (onlyIds) tasks = tasks.filter((task) => onlyIds.includes(task.id));
-    return { source, tasks, prompt: buildPrompt({ mode, language, name: fileName, file: fileName, source, tasks, scope, note }) };
+    // Anchors go into a working copy only; never into the user's own file (folder scope).
+    const anchors = mode === 'agent' && scope !== 'folder' ? anchorDocument(source, tasks) : null;
+    return { source, tasks, anchors, prompt: buildPrompt({ mode, language, name: fileName, file: fileName, source, tasks, scope, note, anchors }) };
+  }
+
+  /** Read an AI result back: drop anchors and set aside anything changed outside them. */
+  function scopedReview(base, proposed, anchors) {
+    if (!anchors?.enabled) return { proposed: stripAnchors(proposed) };
+    const result = resolveAnchors(base, anchors, proposed);
+    return { proposed: result.scoped, unscoped: result.full !== result.scoped ? result.full : undefined, outside: result.outside, anchorMissing: result.missing };
   }
 
   function setMarkStatuses(updates, key = activeDocumentRef.current.key) {
@@ -2541,15 +2663,17 @@ function App() {
       await flushAutomaticSave(); await writerRef.current.jobs.get(key);
       if (activeDocumentRef.current.key !== key) throw new Error('文档已切换，请在目标文档重新发送');
       if (!savedRef.current) { const saved = await saveCurrentFile(); if (saved?.ok === false) throw new Error(saved.error || copy.saveFailed); }
-      const source = getDocumentSource(), { tasks, prompt } = promptFor('agent', scope, onlyIds, note), settings = readAgentSettings();
+      const source = getDocumentSource(), { tasks, prompt, anchors } = promptFor('agent', scope, onlyIds, note), settings = readAgentSettings();
       if (!tasks.length) throw new Error(rt(language, 'nothingToSend'));
       await storeRecovery(key, source, { saved: true, reason: 'before-ai' });
-      run = { id: null, agent, tasks, base: source, key, scope, status: 'starting', output: '', startedAt: Date.now() };
+      run = { id: null, agent, tasks, base: source, key, scope, status: 'starting', output: '', startedAt: Date.now(), anchors: anchors?.enabled ? { enabled: true, anchors: anchors.anchors, wholeDocument: anchors.wholeDocument } : null };
       agentRunRef.current = run; setAgentRun(run); markSent(tasks, agent, key);
       const result = await bridge.run({ adapterId: agent.kind === 'custom' ? null : agent.id, documentId: handle.id, scope, task: prompt, tasks,
+        copyText: run.anchors ? anchors.text : null, anchors: run.anchors?.anchors || null,
         custom: agent.kind === 'custom' ? { template: agent.template, name: agent.name } : null, overrides: settings.overrides, timeoutMinutes: settings.timeoutMinutes });
       if (agentRunRef.current === run || agentRunRef.current?.id === result.id) {
         run.id = result.id; run.pid = result.pid;
+        if (run.anchors && !result.anchored) run.anchors = null;
         if (run.status === 'starting') run.status = 'running';
         if (agentRunRef.current?.status === 'starting' || agentRunRef.current === run) { agentRunRef.current = run; setAgentRun({ ...run }); }
       }
@@ -2574,7 +2698,7 @@ function App() {
       agentRunRef.current = finished; setAgentRun(finished);
       if (finished.status !== 'done') { setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); return; }
       if (typeof data.proposed !== 'string') { finished.status = 'failed'; finished.diagnostic = { message: 'AI 未留下可读取的文档结果，请查看日志' }; setAgentRun({ ...finished }); setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); return; }
-      openReview({ key: run.key, base: run.base, proposed: data.proposed, tasks: run.tasks, answers: finished.answers, questions: finished.questions, sourceLabel: run.agent.name, diskBaseline: finished.diskBaseline, origin: 'agent' });
+      openReview({ key: run.key, base: run.base, ...scopedReview(run.base, data.proposed, run.anchors), tasks: run.tasks, answers: finished.answers, questions: finished.questions, sourceLabel: run.agent.name, diskBaseline: finished.diskBaseline, origin: 'agent' });
     });
     return () => { offOutput(); offDone(); offStatus?.(); };
   }, []);
@@ -2585,7 +2709,7 @@ function App() {
     const handle = desktopHandle(run.record);
     await window.prooflineReader.openFile({ file: await handle.getFile(), handle, path: handle.path });
     setAgentSettingsOpen(false);
-    openReview({ key: activeDocumentRef.current.key, base: run.base, proposed: run.proposed, tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
+    openReview({ key: activeDocumentRef.current.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors?.length ? { enabled: true, anchors: run.anchors, wholeDocument: (run.tasks || []).some((task) => task.scope === 'document') } : null), tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
       sourceLabel: run.agentName, diskBaseline: run.scope === 'folder' ? await (await handle.getFile()).text() : undefined, origin: 'agent' });
   }
 
@@ -2599,18 +2723,20 @@ function App() {
   async function transferPackage() {
     const key = activeDocumentRef.current.key;
     if (manualTransfer?.key && manualTransfer.key !== key) throw new Error('请切回发起任务的文档');
-    const { tasks, prompt } = promptFor('agent', 'file', manualTransfer?.onlyIds || null);
+    const { tasks, prompt, anchors } = promptFor('agent', 'file', manualTransfer?.onlyIds || null);
     const handle = fileHandlesRef.current.get(key);
     if (!handle?.desktop) throw new Error(language === 'zh' ? '请在桌面版打开已保存的 Markdown 文档' : 'Open a saved document in the desktop app');
     await flushAutomaticSave(); await writerRef.current.jobs.get(key);
     if (dirtyDocumentsRef.current.has(key)) throw new Error('请先成功保存文档，再生成任务包');
-    const result = await window.mengxDesktop.handoff(handle.id, prompt, serializeSidecar(fileName, getAnnotations()));
+    const result = await window.mengxDesktop.handoff(handle.id, prompt, serializeSidecar(fileName, getAnnotations()), anchors?.enabled ? anchors.text : null);
+    if (result?.anchored) setManualTransfer((current) => current && ({ ...current, anchors: { enabled: true, anchors: anchors.anchors, wholeDocument: anchors.wholeDocument }, base: getDocumentSource() }));
     markSent(tasks, { name: '任务文件夹' }, key); return result;
   }
 
   function importTransfer(text, full = false) {
     if (manualTransfer?.key && activeDocumentRef.current.key !== manualTransfer.key) throw new Error('请先切回发起任务的文档');
-    if (full) openReview({ key: activeDocumentRef.current.key, base: getDocumentSource(), proposed: text, tasks: currentTasks(undefined, REDLINE_STATUS), answers: new Map(), sourceLabel: language === 'zh' ? '导入的文档' : 'Imported document', origin: 'reply' });
+    const base = getDocumentSource(), anchors = manualTransfer?.anchors && manualTransfer.base === base ? manualTransfer.anchors : null;
+    if (full) openReview({ key: activeDocumentRef.current.key, base, ...scopedReview(base, text, anchors), tasks: currentTasks(undefined, REDLINE_STATUS), answers: new Map(), sourceLabel: language === 'zh' ? '导入的文档' : 'Imported document', origin: 'reply' });
     else { const result = reviewReply(text); if (!result.ok) throw new Error(rt(language, 'pasteNothing')); }
     setManualTransfer(null); return { ok: true };
   }
@@ -2633,6 +2759,25 @@ function App() {
   }
 
   /** Replace the document with reviewed content. `diskBaseline` is what the file on disk holds now. */
+  // "Insert as total row": find the table in the source and append a Markdown row.
+  tableActionsRef.current = {
+    insertTotal(table) {
+      if (!table || !articleRef.current?.contains(table)) return;
+      const label = language === 'zh' ? '合计' : 'Total';
+      const body = table.tBodies[0]; if (!body) return;
+      const selection = window.getSelection(), saved = selection.rangeCount ? selection.getRangeAt(0) : null;
+      const range = document.createRange(); range.setStart(table.tHead || body, 0); range.setEnd(body, body.childNodes.length);
+      selection.removeAllRanges(); selection.addRange(range);
+      const captured = captureReadingSelection(articleRef.current, getDocumentSource(), documentAnalysis.chunks);
+      selection.removeAllRanges(); if (saved) selection.addRange(saved);
+      const source = getDocumentSource();
+      const next = captured && appendTableRow(source, captured.anchor.sourceOffset, captured.anchor.sourceEnd, totalRowMarkdown(table, label));
+      if (!next) { setNotice(language === 'zh' ? '没能在原文里找到这张表格' : 'Could not find this table in the source'); return; }
+      applySource(next);
+      setNotice(language === 'zh' ? '已插入合计行，可以撤销' : 'Total row inserted; you can undo it');
+    },
+  };
+
   function applySource(final, { diskBaseline } = {}) {
     const key = activeDocumentRef.current.key, handle = fileHandlesRef.current.get(key);
     if (diskBaseline !== undefined && handle && ['MD', 'TXT'].includes(activeDocumentRef.current.kind)) {
@@ -2671,6 +2816,7 @@ function App() {
       const question = current.questions?.get(task.n);
       if (question) { updates.set(task.id, { status: 'question', question }); continue; }
       if (task.type === 'ask') { const answer = current.answers?.get(task.n); updates.set(task.id, answer ? { status: 'answered', answer } : { status: 'open' }); continue; }
+      if (task.scope === 'document') { updates.set(task.id, { status: diff.hunks.some((hunk) => hunk.type === 'change' && decisions[hunk.id] !== 'reject') ? 'resolved' : 'unchanged' }); continue; }
       const gone = resolveTextAnchor(final, mark.anchor).orphaned;
       updates.set(task.id, { status: touched.has(task.id) || gone ? 'resolved' : (current.origin === 'external' ? mark.status : 'unchanged') });
     }
@@ -3137,7 +3283,7 @@ function App() {
     showImage: (source) => { setLightbox(source ? { src: source, alt: '' } : null); return { ok: true }; },
     save: () => saveCurrentFile(),
     exportMarkdown: exportDraft,
-    exportPdf,
+    exportPdf, exportWord,
     cancelPdf,
     getPerformanceReport: () => ({ ...performanceRef.current,
       longTaskSupported: PerformanceObserver.supportedEntryTypes?.includes('longtask') || false,
@@ -3206,8 +3352,10 @@ function App() {
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setPathOpen(true); }}><FolderOpen size={16} /><span>{zh ? '按路径打开…' : 'Open by path…'}</span><kbd>{mod} L</kbd></button>
               <button role="menuitem" aria-label={zh ? '保存版本与恢复' : 'Saved versions and recovery'} onClick={() => { setDocumentMenuOpen(false); void showVersions(); }}><RefreshCw size={16} /><span>{zh ? '保存版本与恢复' : 'Saved versions and recovery'}</span></button>
               <span className="menu-separator" />
+              <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setStatsOpen(true); }}><AlignLeft size={16} /><span>{zh ? '文档统计' : 'Document statistics'}</span></button>
               <button role="menuitem" aria-label={copy.export} onClick={() => { setDocumentMenuOpen(false); void exportDraft(); }}><Download size={16} /><span>{copy.export}</span></button>
               <button role="menuitem" aria-label={copy.exportPdf} disabled={Boolean(pdfProgress)} onClick={() => { setDocumentMenuOpen(false); void exportPdf(); }}><FileDown size={16} /><span>{copy.exportPdf}</span></button>
+              <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); void exportWord(); }}><FileDown size={16} /><span>{zh ? '导出 Word' : 'Export Word'}</span></button>
               <span className="menu-separator" />
               {window.mengxDesktop?.system && <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setSetupOpen(true); }}><Settings2 size={16} /><span>{zh ? '默认应用与 AI' : 'Default app and AI'}</span></button>}
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setAgentSettingsOpen(true); }}><Settings2 size={16} /><span>{rt(language, 'agentSettings')}</span></button>
@@ -3458,30 +3606,35 @@ function App() {
 
         {outlineOpen && !focusMode && !review && tabs.length > 0 && <RedlineRail language={language} mode={railMode} onMode={setRailMode} marks={annotations} numbers={redlineNumbers}
           activeId={markPopover?.id || activeAnnotation} busy={['starting', 'running'].includes(agentRun?.status)} storage={markStore.getSaveState(currentDocumentKey)} onStorage={() => setAgentSettingsOpen(true)}
-          onSelect={(id) => { void goToAnnotation(id).then(() => {
+          onSelect={(id) => {
+            const whole = getAnnotations().find((entry) => entry.id === id);
+            if (whole?.anchor?.document) { openMarkPopover(id, document.querySelector(`.rail-item[data-mark-id="${id}"]`)?.getBoundingClientRect(), { focus: true }); return; }
+            void goToAnnotation(id).then(() => {
             const item = getAnnotations().find((entry) => entry.id === id);
             if (!item || item.type === 'bookmark' || usingRichEditor) return;
             const range = findRenderedAnchor(articleRef.current, item.anchor, documentAnalysis.chunks);
             if (range) openMarkPopover(id, range.getBoundingClientRect());
           }).catch(() => {}); }}
           onRemove={(id) => removeAnnotation(id)} onSend={(ids) => openSendDialog(Array.isArray(ids) ? ids : null)}
+          onDocumentInstruction={(rect) => { const created = addAnnotation('free', { anchor: { text: '', rawQuote: '', document: true, sourceOffset: 0, sourceEnd: 0 }, label: language === 'zh' ? '全文' : 'Whole document' }); openMarkPopover(created.id, rect, { focus: true }); }}
           onBookmark={() => addAnnotation('bookmark', {})} onExport={() => void exportAnnotations()}
           onUndo={() => changeAnnotationHistory('undo')} onRedo={() => changeAnnotationHistory('redo')} canUndo={Boolean(annotationHistory?.past.length)} canRedo={Boolean(annotationHistory?.future.length)}
           onHide={() => setOutlineOpen(false)} />}
         {!outlineOpen && !focusMode && !review && tabs.length > 0 && <button className="reopen-rail" onClick={() => setOutlineOpen(true)} aria-label={rt(language, 'redlines')} title={rt(language, 'redlines')}><PanelRight size={17} />{openRedlines.length > 0 && <span>{openRedlines.length}</span>}</button>}
       </div>
 
+      {statsOpen && <StatsDialog language={language} stats={documentStats(getDocumentSource(), annotations, documentAnalysis.wordCount)} name={fileName} onClose={() => setStatsOpen(false)} />}
       {recentMenu && <div className="recent-menu" role="menu" style={{ left: recentMenu.left, top: recentMenu.top }}><button role="menuitem" onClick={() => removeRecentRecord(recentMenu.file)}><X size={15} />{copy.removeRecent}</button><button role="menuitem" className="danger" onClick={() => void requestSourceDeletion(recentMenu.file)}><Trash2 size={15} />{copy.deleteSource}</button></div>}
       {deleteConfirmation && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteBusy) cancelSourceDeletion(); }}><div className="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-warning"><h2 id="delete-title">{copy.deleteTitle}</h2><p className="delete-filename">{deleteConfirmation.file.name}</p><p className="delete-path">{deleteConfirmation.file.path}</p><p id="delete-warning">{window.mengxDesktop ? (zh ? (platform === 'darwin' ? '将把这个源文件移到废纸篓，需要时可以从废纸篓恢复。' : '将把这个源文件移入回收站，需要时可以从回收站还原。') : (platform === 'darwin' ? 'Move this file to the Trash. You can restore it from the Trash.' : 'Move this file to the Recycle Bin. You can restore it from the Recycle Bin.')) : copy.deleteWarning}</p><div className="dialog-actions"><button autoFocus disabled={deleteBusy} onClick={cancelSourceDeletion}>{copy.cancel}</button><button className="danger-button" disabled={deleteBusy} onClick={() => void confirmSourceDeletion(deleteConfirmation.token)}><Trash2 size={15} />{deleteBusy ? copy.deleting : copy.deleteSource}</button></div></div></div>}
       {selectionTools && !noteDialog && !selectionContextMenu && !markPopover && <div className="selection-tools" style={selectionTools} onMouseDown={(event) => event.preventDefault()}>
-        {['fix', 'expand', 'delete', 'ask'].map((type) => <button key={type} className={`sel-type type-${type}`} onClick={() => startAnnotation(type)} title={rt(language, `typeHint.${type}`)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}{readingMode && <kbd>{{ fix: 'F', expand: 'E', delete: 'D', ask: 'Q' }[type]}</kbd>}</button>)}
+        {['fix', 'expand', 'delete', 'ask', 'free'].map((type) => <button key={type} className={`sel-type type-${type}`} onClick={() => startAnnotation(type)} title={rt(language, `typeHint.${type}`)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}{readingMode && <kbd>{{ fix: 'F', expand: 'E', delete: 'D', ask: 'Q', free: 'I' }[type]}</kbd>}</button>)}
         <span className="sel-divider" />
         <button className="sel-type type-highlight" onClick={() => startAnnotation('highlight')} title={rt(language, 'typeHint.highlight')}><Highlighter size={14} /></button>
         <button className="sel-type type-underline" onClick={() => startAnnotation('underline')} title={rt(language, 'typeHint.underline')}><Underline size={14} /></button>
         <button className="sel-type type-note" onClick={() => openSelectionNote(selectedPassageRef.current)} title={rt(language, 'typeHint.note')}><MessageCircle size={14} /></button>
         <button className="sel-close" aria-label={zh ? '关闭' : 'Close'} onClick={() => setSelectionTools(null)}><X size={14} /></button>
       </div>}
-      {selectionContextMenu && !noteDialog && <div className="selection-context-menu" role="menu" style={{ left: selectionContextMenu.left, top: selectionContextMenu.top }} onMouseDown={(event) => event.preventDefault()}><button role="menuitem" onClick={() => void copySelectedText(selectionContextMenu.text)}><Copy size={15} />{zh ? '复制' : 'Copy'}</button><button role="menuitem" disabled={readingMode} onClick={() => void cutSelectedText(selectionContextMenu.text)}><Scissors size={15} />{zh ? '剪切' : 'Cut'}</button><span className="selection-context-divider" />{['fix', 'expand', 'delete', 'ask'].map((type) => <button key={type} role="menuitem" className={`type-${type}`} disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation(type, selectionContextMenu.anchor)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}<span className="selection-context-divider" /><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('highlight', selectionContextMenu.anchor)}><Highlighter size={15} />{typeLabel(language, 'highlight')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('underline', selectionContextMenu.anchor)}><Underline size={15} />{typeLabel(language, 'underline')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => openSelectionNote(selectionContextMenu.anchor)}><MessageCircle size={15} />{typeLabel(language, 'note')}</button></div>}
+      {selectionContextMenu && !noteDialog && <div className="selection-context-menu" role="menu" style={{ left: selectionContextMenu.left, top: selectionContextMenu.top }} onMouseDown={(event) => event.preventDefault()}><button role="menuitem" onClick={() => void copySelectedText(selectionContextMenu.text)}><Copy size={15} />{zh ? '复制' : 'Copy'}</button><button role="menuitem" disabled={readingMode} onClick={() => void cutSelectedText(selectionContextMenu.text)}><Scissors size={15} />{zh ? '剪切' : 'Cut'}</button><span className="selection-context-divider" />{['fix', 'expand', 'delete', 'ask', 'free'].map((type) => <button key={type} role="menuitem" className={`type-${type}`} disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation(type, selectionContextMenu.anchor)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}<span className="selection-context-divider" /><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('highlight', selectionContextMenu.anchor)}><Highlighter size={15} />{typeLabel(language, 'highlight')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('underline', selectionContextMenu.anchor)}><Underline size={15} />{typeLabel(language, 'underline')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => openSelectionNote(selectionContextMenu.anchor)}><MessageCircle size={15} />{typeLabel(language, 'note')}</button></div>}
       {popoverMark && <MarkPopover key={popoverMark.id} mark={popoverMark} number={redlineNumbers.get(popoverMark.id)} anchorRect={markPopover.rect} language={language} autoFocus={markPopover.focus}
         onChangeType={(type) => updateAnnotation(popoverMark.id, { type })} onChangeNote={(note) => updateAnnotation(popoverMark.id, { note })}
         onRemove={() => removeAnnotation(popoverMark.id)} onClose={() => setMarkPopover(null)} onSend={() => openSendDialog([popoverMark.id])} />}
@@ -3503,13 +3656,13 @@ function App() {
           <button disabled={conflictBusy} onClick={() => setConflictDialog(false)}>{zh ? '稍后处理' : 'Later'}</button>
         </div>
       </div></div>}
-      {sendOpen && <SendDialog language={language} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
+      {sendOpen && <SendDialog language={language} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
       {setupOpen && <SetupWizard language={language} platform={platform} onClose={closeSetup} />}
       {manualTransfer && <ManualTransfer language={language} onClose={() => setManualTransfer(null)} onPackage={() => transferPackage()} onImport={(text) => importTransfer(text, true)} />}
       {agentSettingsOpen && <AgentSettings language={language} onClose={() => setAgentSettingsOpen(false)} onNotice={setNotice} onRecover={recoverAgentRun} />}
       {agentRun && !review && <RunPanel language={language} run={agentRun} onStop={stopAgent} onDismiss={() => { agentRunRef.current = null; setAgentRun(null); }} onSettings={() => setAgentSettingsOpen(true)} onDiagnose={() => void window.mengxDesktop.agents.diagnostics({ overrides: readAgentSettings().overrides, runId: agentRun.id }).then((result) => setNotice('诊断任务已保存：' + result.path)).catch((error) => setNotice(error.message))}
         onRetry={() => void (async () => { const run = agentRunRef.current; if (!run) return; if (activeDocumentRef.current.key !== run.key) await switchTab(run.key); agentRunRef.current = null; setAgentRun(null); openSendDialog(run.tasks.map((task) => task.id)); })().catch((error) => setNotice(error.message))}
-        onReview={() => { const run = agentRunRef.current; if (run && typeof run.proposed === 'string') openReview({ key: run.key, base: run.base, proposed: run.proposed, tasks: run.tasks, answers: run.answers || new Map(), sourceLabel: run.agent.name, diskBaseline: run.diskBaseline, origin: 'agent' }); }} />}
+        onReview={() => { const run = agentRunRef.current; if (run && typeof run.proposed === 'string') openReview({ key: run.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors), tasks: run.tasks, answers: run.answers || new Map(), sourceLabel: run.agent.name, diskBaseline: run.diskBaseline, origin: 'agent' }); }} />}
       {lightbox && <ImageViewer key={lightbox.key || lightbox.src} image={lightbox} language={language} onClose={() => setLightbox(null)} onNotice={setNotice} />}
     </div>
   );

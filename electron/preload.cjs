@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('mengxDesktop', {
   readSidecar: (id) => invoke('readSidecar', id),
   writeSidecar: (id, text) => invoke('writeSidecar', id, text),
   saveImage: (id, bytes) => invoke('saveImage', id, bytes),
-  handoff: (id, task, marks) => invoke('handoff', id, task, marks),
+  handoff: (id, task, marks, copyText = null) => invoke('handoff', id, task, marks, copyText),
   system: {
     defaultStatus: () => ipcRenderer.invoke('redline:system', 'defaultStatus'),
     pinnedStatus: () => ipcRenderer.invoke('redline:system', 'pinnedStatus'),

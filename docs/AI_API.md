@@ -80,6 +80,7 @@ const result = await reader.exportPdf();
 | `save()` | 写回原始 MD/TXT；没有写入句柄返回 `file-handle-unavailable`，不偷偷改用下载 |
 | `exportMarkdown()` | 导出干净的 Markdown；桌面版选择保存路径，返回 `{ ok, path, bytes }`，浏览器触发下载 |
 | `exportPdf()` | 后台排版并导出 PDF，桌面版写入后返回 `{ ok, path, bytes, pages, stats }`；浏览器返回 `{ ok, name, pages, stats }`。繁忙返回 `busy`，取消返回 `cancelled` |
+| `exportWord()` | 导出 Word（.docx）：标题、列表、表格、代码、链接、图片；图表和 Mermaid 图转为图片，下方附数据表；公式保留 LaTeX 原文。返回 `{ ok, path, bytes }` |
 | `cancelPdf()` | 取消当前 PDF，导出 Promise 返回 `{ ok: false, cancelled: true, code: 'cancelled', revision }` |
 | `getPerformanceReport()` | 最近打开耗时、PDF 耗时、长任务、错误、已挂载分块/节点数和可用的堆内存数据 |
 | `clearDiagnostics()` | 清空本次会话的性能和错误记录 |

@@ -209,7 +209,7 @@ else {
         const record = await files.get(options.documentId, 'file');
         if (!/\.(md|markdown|mdown|mkd|txt)$/i.test(record.path)) throw new Error('Only Markdown and text documents can be edited by an agent');
         return agents.run({ adapterId: options.adapterId, documentPath: record.path, scope: options.scope === 'folder' ? 'folder' : 'file',
-          task: String(options.task || ''), tasks: options.tasks || [], custom: options.custom || null, overrides: options.overrides || {}, timeoutMinutes: options.timeoutMinutes });
+          task: String(options.task || ''), tasks: options.tasks || [], copyText: typeof options.copyText === 'string' ? options.copyText : null, anchors: Array.isArray(options.anchors) ? options.anchors : null, custom: options.custom || null, overrides: options.overrides || {}, timeoutMinutes: options.timeoutMinutes });
       }
       if (operation === 'history') return (await dataStore.list('runs')).slice(0, 30).map((run) => ({ id: run.id, documentPath: run.documentPath, agentName: run.agentName, startedAt: run.startedAt, status: agents.runs.has(run.id) ? 'running' : ['running', 'starting'].includes(run.status) ? 'interrupted' : run.status, diagnostic: run.diagnostic }));
       if (operation === 'recover') {
@@ -326,7 +326,7 @@ else {
         case 'readSidecar': return files.readSidecar(...parameters);
         case 'writeSidecar': return files.writeSidecar(...parameters);
         case 'saveImage': return files.saveImage(...parameters);
-        case 'handoff': { const result = await files.handoff(parameters[0], String(parameters[1]), String(parameters[2])); await shell.openPath(result.path); return result; }
+        case 'handoff': { const result = await files.handoff(parameters[0], String(parameters[1]), String(parameters[2]), typeof parameters[3] === 'string' ? parameters[3] : null); await shell.openPath(result.path); return result; }
         case 'metadata': return files.metadata(...parameters);
         case 'write': return files.write(...parameters);
         case 'list': return files.list(...parameters);
@@ -379,12 +379,12 @@ else {
         }
         case 'saveExport': {
           const name = path.basename(parameters[0]);
-          if (!/\.(md|pdf)$/i.test(name) && !/\.annotations\.json$/i.test(name)) throw new Error('Unsupported export format');
+          if (!/\.(md|pdf|docx)$/i.test(name) && !/\.annotations\.json$/i.test(name)) throw new Error('Unsupported export format');
           let filename;
           if (exportDirectory) { await fs.mkdir(exportDirectory, { recursive: true }); filename = path.join(exportDirectory, name); }
           else {
             const choice = await dialog.showSaveDialog(window, { title: '保存导出副本', defaultPath: name,
-              filters: [{ name: name.endsWith('.pdf') ? 'PDF' : name.endsWith('.json') ? 'Annotations' : 'Markdown', extensions: [name.endsWith('.pdf') ? 'pdf' : name.endsWith('.json') ? 'json' : 'md'] }] });
+              filters: [{ name: name.endsWith('.pdf') ? 'PDF' : name.endsWith('.docx') ? 'Word' : name.endsWith('.json') ? 'Annotations' : 'Markdown', extensions: [name.endsWith('.pdf') ? 'pdf' : name.endsWith('.docx') ? 'docx' : name.endsWith('.json') ? 'json' : 'md'] }] });
             if (choice.canceled) return { ok: false, cancelled: true };
             filename = choice.filePath;
           }

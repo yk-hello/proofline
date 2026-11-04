@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Undo2, Redo2, Download, Bookmark, Send, PanelRight, X, MessageCircle, Highlighter, Underline } from 'lucide-react';
+import { Search, Undo2, Redo2, Download, Bookmark, Send, PanelRight, X, MessageCircle, Highlighter, Underline, Plus } from 'lucide-react';
 import { isRedline, sortByPosition } from './marks';
 import { t, typeLabel, modifierKey } from './copy';
 
@@ -8,7 +8,7 @@ const FILTER_KEYS = { highlight: 'filterHighlight', underline: 'filterUnderline'
 const PERSONAL_ICONS = { highlight: Highlighter, underline: Underline, note: MessageCircle, bookmark: Bookmark };
 
 export default function RedlineRail({ language, mode, onMode, marks, numbers, activeId, onSelect, onRemove, onSend,
-  onBookmark, onExport, onUndo, onRedo, canUndo, canRedo, onHide, busy, storage, onStorage }) {
+  onBookmark, onExport, onUndo, onRedo, canUndo, canRedo, onHide, busy, storage, onStorage, onDocumentInstruction }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const redlines = useMemo(() => sortByPosition(marks.filter((item) => isRedline(item.type))), [marks]);
@@ -42,10 +42,11 @@ export default function RedlineRail({ language, mode, onMode, marks, numbers, ac
     </div>}
     <div className="rail-list">
       {mode === 'marks' && (filter === 'all' || filter === 'bookmark') && <button className="rail-bookmark" onClick={onBookmark}><Bookmark size={14} />{t(language, 'bookmarkHere')}</button>}
+      {mode === 'redlines' && onDocumentInstruction && <button className="rail-bookmark rail-document-instruction" title={t(language, 'documentInstructionHint')} onClick={(event) => onDocumentInstruction(event.currentTarget.getBoundingClientRect())}><Plus size={14} />{t(language, 'documentInstruction')}</button>}
       {list.map((item) => {
         const number = numbers.get(item.id);
         const Icon = PERSONAL_ICONS[item.type];
-        return <div key={item.id} className={`rail-item ${isRedline(item.type) ? 'redline' : 'personal'} type-${item.type} status-${item.status || 'none'} ${activeId === item.id ? 'active' : ''}`}>
+        return <div key={item.id} data-mark-id={item.id} className={`rail-item ${isRedline(item.type) ? 'redline' : 'personal'} type-${item.type} status-${item.status || 'none'} ${activeId === item.id ? 'active' : ''}`}>
           <button className="rail-item-body" onClick={() => onSelect(item.id)} disabled={item.anchor?.orphaned && item.type !== 'bookmark' && !['resolved', 'answered'].includes(item.status)}>
             <span className="rail-item-meta">
               {isRedline(item.type) ? <span className={`mark-chip type-${item.type}`}>#{number} {typeLabel(language, item.type)}</span>
@@ -53,7 +54,7 @@ export default function RedlineRail({ language, mode, onMode, marks, numbers, ac
               {item.status && item.status !== 'open' && <span className={`status-pill ${item.status}`}>{t(language, item.status)}</span>}
               {item.sentTo && <small>{item.sentTo}</small>}
             </span>
-            <span className="rail-item-quote">{item.type === 'bookmark' ? item.label : item.anchor?.text}</span>
+            <span className="rail-item-quote">{item.type === 'bookmark' ? item.label : item.anchor?.document ? t(language, 'wholeDocument') : item.anchor?.text}</span>
             {item.note && <span className="rail-item-note">{item.note}</span>}
             {item.answer && <span className="rail-item-answer">{item.answer}</span>}
             {item.status === 'question' && item.question && <span className="rail-item-question"><strong>{t(language, 'aiQuestion')}</strong>{item.question}</span>}

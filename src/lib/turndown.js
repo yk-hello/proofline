@@ -33,6 +33,10 @@ turndown.addRule('readerTable', {
     return `\n\n${[line(rows[0]), `| ${divider.join(' | ')} |`, ...rows.slice(1).map(line)].join('\n')}\n\n`;
   },
 });
+turndown.addRule('readerChart', {
+  filter: (node) => node.nodeName === 'DIV' && node.classList.contains('pl-chart-block'),
+  replacement: (content, node) => `\n\n<!-- proofline:chart ${node.dataset.chartSpec || ''} -->\n${content.trim()}\n\n`,
+});
 turndown.addRule('readerDefinitions', {
   filter: 'dl',
   replacement: (_content, node) => {

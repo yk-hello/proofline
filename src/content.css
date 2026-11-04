@@ -34,6 +34,9 @@
 .reader-code-small .document-content pre { font-size: 12px; }
 .reader-code-large .document-content pre { font-size: 15px; }
 .document-content pre.mermaid-block { position: relative; padding-top: 40px; }
+.document-content pre.mermaid-block.diagram-rendered:not(.diagram-source-visible) { display: none; }
+.document-content .pl-diagram-host, .document-content .pl-chart-block { display: block; margin: 28px 0; }
+.document-content .pl-chart-block table { margin: 0; }
 .document-content pre.mermaid-block::before { content: "MERMAID"; position: absolute; top: 12px; left: 24px; color: var(--faint); font: 500 10px var(--mono); letter-spacing: .1em; }
 .document-content .math-block { margin: 30px 0; overflow-x: auto; }
 .document-content table { width: 100%; margin: 30px 0; border-collapse: collapse; font-family: var(--ui-font); font-size: 13px; line-height: 1.7; }

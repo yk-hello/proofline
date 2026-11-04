@@ -3,7 +3,7 @@
 // The reader keeps a synchronous in-memory cache and persists in the background.
 import { ANNOTATIONS_KEY } from '../reading-annotations';
 
-export const REDLINE_TYPES = ['fix', 'expand', 'delete', 'ask'];
+export const REDLINE_TYPES = ['fix', 'expand', 'delete', 'ask', 'free'];
 export const PERSONAL_TYPES = ['highlight', 'underline', 'note', 'bookmark'];
 export const MARK_TYPES = [...REDLINE_TYPES, ...PERSONAL_TYPES];
 export const isRedline = (type) => REDLINE_TYPES.includes(type);

@@ -65,6 +65,9 @@ function skeleton(source, base = 0) {
   const lineMarker = /^[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-+*][ \t]+(?:\[[ xX]\][ \t]+)?|\d{1,9}[.)][ \t]+)+/gm;
   const skip = new Uint8Array(source.length);
   for (const match of source.matchAll(lineMarker)) skip.fill(1, match.index, match.index + match[0].length);
+  // Table delimiter rows (|---|:---:|) and chart directives never appear in rendered text.
+  for (const match of source.matchAll(/^[ \t]{0,3}\|?[ \t]*:?-{1,}:?[ \t]*(?:\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/gm)) skip.fill(1, match.index, match.index + match[0].length);
+  for (const match of source.matchAll(/<!--[\s\S]*?-->/g)) skip.fill(1, match.index, match.index + match[0].length);
   for (const match of source.matchAll(/!?\[([^\]\n]*)\]\([^\n)]*\)/g)) {
     const textStart = match.index + (match[0][0] === '!' ? 2 : 1);
     skip.fill(1, match.index, textStart); skip.fill(1, textStart + match[1].length, match.index + match[0].length);
@@ -107,6 +110,7 @@ export function createTextAnchor(source, { text, sourceOffset = 0, regionStart =
 }
 
 export function resolveTextAnchor(source, anchor) {
+  if (anchor?.document) return { ...anchor, orphaned: false };
   if (!anchor?.rawQuote) return { ...anchor, orphaned: true };
   const at = closestMatch(source, anchor.rawQuote, anchor.sourceOffset, anchor.prefix, anchor.suffix);
   return at < 0 ? { ...anchor, orphaned: true } : { ...anchor, sourceOffset: at, sourceEnd: at + anchor.rawQuote.length, orphaned: false };
@@ -206,7 +210,7 @@ export function captureReadingSelection(root, source, chunks = []) {
 }
 
 export function findRenderedAnchor(root, anchor, chunks = []) {
-  if (!root || anchor.orphaned) return null;
+  if (!root || anchor.orphaned || anchor.document) return null;
   const regions = root.matches('[data-edit-region]') ? [root] : [...root.querySelectorAll('[data-edit-region]')];
   for (let index = 0; index < regions.length; index++) {
     const region = regions[index];
@@ -232,7 +236,7 @@ export function findRenderedAnchor(root, anchor, chunks = []) {
   return null;
 }
 
-export const MARK_HIGHLIGHTS = ['fix', 'expand', 'delete', 'ask', 'highlight', 'underline', 'note'];
+export const MARK_HIGHLIGHTS = ['fix', 'expand', 'delete', 'ask', 'free', 'highlight', 'underline', 'note'];
 
 export function clearReadingHighlights() {
   if (!globalThis.CSS?.highlights) return;

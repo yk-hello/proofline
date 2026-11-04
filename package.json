@@ -28,6 +28,8 @@
     "test:long": "node scripts/reader-long-smoke.mjs",
     "test:core": "node scripts/redline-core.test.mjs",
     "test:redline": "node scripts/redline-smoke.mjs",
+    "test:ui": "node scripts/ui-regressions-smoke.mjs",
+    "test:charts": "node scripts/charts-tables-smoke.mjs",
     "desktop:pack:mac": "npm run build && electron-builder --mac --universal --publish never",
     "test:integration": "node scripts/agents-storage.test.mjs",
     "test:adapters": "node scripts/cli-adapters.test.mjs",

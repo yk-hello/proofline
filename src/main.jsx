@@ -11,7 +11,7 @@ import { VirtualList } from './VirtualList';
 import { useReaderApi, waitForReader, pageOf, API_VERSION } from './use-reader-api';
 import { createTextAnchor, resolveTextAnchor, captureReadingSelection, findRenderedAnchor, paintReadingHighlights, clearReadingHighlights, hitTestMarks } from './reading-annotations';
 import { markStore, isRedline, numberRedlines, MARK_TYPES, REDLINE_STATUS, serializeSidecar } from './redline/marks';
-import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors } from '../electron/redline-core.mjs';
+import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors, hiddenContent } from '../electron/redline-core.mjs';
 import { t as rt, typeLabel } from './redline/copy';
 import { readAgentSettings, restoreAgentSettings } from './redline/agents';
 import MarkPopover from './redline/MarkPopover';
@@ -27,6 +27,9 @@ import SetupWizard from './redline/SetupWizard';
 import { findMathMatches } from './math-matches';
 import { DEFAULT_SEARCH_OPTIONS, normalizeSearchOptions, searchExpression, textMatches } from './search';
 import { findEditorMatches, paintEditorMatches, clearEditorMatches, revealRange } from './editor-search';
+import { hydrateWidgets } from './charts';
+import { enhanceTables, sortTable, totalRowMarkdown, appendTableRow, documentStats } from './table-tools';
+import StatsDialog from './redline/StatsDialog';
 import { getRecovery, storeRecovery, recoveryVersions } from './document-recovery';
 import ImageViewer from './ImageViewer';
 import {
@@ -172,6 +175,8 @@ function App() {
   const [quickQuery, setQuickQuery] = useState('');
   const [pathOpen, setPathOpen] = useState(false);
   const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const tableActionsRef = useRef(null);
   const [readingMode, setReadingMode] = useState(true);
   const [referenceName, setReferenceName] = useState('阅读器架构.txt');
   const [referenceMarkdown, setReferenceMarkdown] = useState(REFERENCE_DOCUMENT);
@@ -848,9 +853,57 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Charts and Mermaid diagrams in rendered Markdown (reading view, split view, review).
+  useEffect(() => {
+    const area = document.querySelector('.main-area');
+    if (!area) return undefined;
+    const labels = language === 'zh'
+      ? { data: '数据', source: '源码', mark: '对图表下指令', markHint: '选中整个图表的数据，给 AI 下指令', failed: '图表无法渲染' }
+      : { data: 'Data', source: 'Source', mark: 'Instruct on chart', markHint: 'Select the whole chart data to give the AI an instruction', failed: 'Diagram could not be rendered' };
+    const renderMermaid = (source) => import('./mermaid-renderer').then(({ renderMermaidSvg }) => renderMermaidSvg(source));
+    const tableLabels = language === 'zh'
+      ? { sum: '合计', average: '平均', insert: '插入为合计行', insertHint: '把合计写进文档，作为表格最后一行', sortHint: '点击排序（只改变显示顺序，不改文档）' }
+      : { sum: 'Total', average: 'Average', insert: 'Insert as total row', insertHint: 'Write the totals into the document as the last table row', sortHint: 'Click to sort (display only; the document is unchanged)' };
+    let frame = 0;
+    const run = () => {
+      frame = 0;
+      area.querySelectorAll('.document-content').forEach((root) => {
+        if (root.closest('.markdown-editor')) return;
+        hydrateWidgets(root, { renderMermaid, labels });
+        if (root.closest('.reading-column, .reference-column')) enhanceTables(root, tableLabels);
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(run); };
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(area, { childList: true, subtree: true });
+    // "Instruct on chart": select the chart's data (or diagram source) and open the mark tools.
+    const selectComponent = (event) => {
+      const node = event.detail?.node; if (!node) return;
+      const range = document.createRange(); range.selectNodeContents(node);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      requestAnimationFrame(() => document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })));
+    };
+    area.addEventListener('proofline:select-component', selectComponent);
+    const onTableClick = (event) => {
+      const insert = event.target.closest?.('.pl-insert-total');
+      if (insert) { event.preventDefault(); event.stopPropagation(); tableActionsRef.current?.insertTotal(insert.closest('table')); return; }
+      const header = event.target.closest?.('th[data-pl-sort]');
+      if (header && !window.getSelection()?.toString() && header.closest('.reading-column, .reference-column')) sortTable(header.closest('table'), Number(header.dataset.plColumn));
+    };
+    area.addEventListener('click', onTableClick, true);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); area.removeEventListener('proofline:select-component', selectComponent); area.removeEventListener('click', onTableClick, true); };
+  }, [language]);
+
   useEffect(() => {
     const changed = () => {
       if (sourceView) { setSelectionTools(null); return; }
+      const anchorNode = window.getSelection()?.anchorNode;
+      if (anchorNode && (anchorNode.nodeType === 1 ? anchorNode : anchorNode.parentElement)?.closest?.('table[data-sorted]')) {
+        selectedPassageRef.current = null; setSelectionTools(null);
+        setNotice(language === 'zh' ? '表格已按列排序，只是显示顺序变了。要标记表格里的内容，请先点表头恢复原顺序。' : 'This table is sorted for display. Click the header to restore the original order before marking it.');
+        return;
+      }
       const captured = captureReadingSelection(articleRef.current, getDocumentSource(), documentAnalysis.chunks);
       selectedPassageRef.current = captured?.anchor || null;
       setSelectionTools(captured ? { left: Math.max(8, Math.min(window.innerWidth - 240, captured.rect.left)), top: Math.max(62, Math.min(window.innerHeight - 48, captured.rect.bottom + 8)) } : null);
@@ -1397,7 +1450,7 @@ function App() {
       if (markPopover && !typing && ['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); removeAnnotation(markPopover.id); return; }
       if (!typing && (event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); openSendDialog(); return; }
       if (!typing && readingMode && selectionTools && selectedPassageRef.current && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const type = { f: 'fix', e: 'expand', d: 'delete', q: 'ask', h: 'highlight', u: 'underline', n: 'note' }[event.key.toLowerCase()];
+        const type = { f: 'fix', e: 'expand', d: 'delete', q: 'ask', i: 'free', h: 'highlight', u: 'underline', n: 'note' }[event.key.toLowerCase()];
         if (type) { event.preventDefault(); startAnnotation(type); return; }
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
@@ -2579,7 +2632,7 @@ function App() {
       const source = getDocumentSource(), { tasks, prompt, anchors } = promptFor('agent', scope, onlyIds, note), settings = readAgentSettings();
       if (!tasks.length) throw new Error(rt(language, 'nothingToSend'));
       await storeRecovery(key, source, { saved: true, reason: 'before-ai' });
-      run = { id: null, agent, tasks, base: source, key, scope, status: 'starting', output: '', startedAt: Date.now(), anchors: anchors?.enabled ? { enabled: true, anchors: anchors.anchors } : null };
+      run = { id: null, agent, tasks, base: source, key, scope, status: 'starting', output: '', startedAt: Date.now(), anchors: anchors?.enabled ? { enabled: true, anchors: anchors.anchors, wholeDocument: anchors.wholeDocument } : null };
       agentRunRef.current = run; setAgentRun(run); markSent(tasks, agent, key);
       const result = await bridge.run({ adapterId: agent.kind === 'custom' ? null : agent.id, documentId: handle.id, scope, task: prompt, tasks,
         copyText: run.anchors ? anchors.text : null, anchors: run.anchors?.anchors || null,
@@ -2622,7 +2675,7 @@ function App() {
     const handle = desktopHandle(run.record);
     await window.prooflineReader.openFile({ file: await handle.getFile(), handle, path: handle.path });
     setAgentSettingsOpen(false);
-    openReview({ key: activeDocumentRef.current.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors?.length ? { enabled: true, anchors: run.anchors } : null), tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
+    openReview({ key: activeDocumentRef.current.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors?.length ? { enabled: true, anchors: run.anchors, wholeDocument: (run.tasks || []).some((task) => task.scope === 'document') } : null), tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
       sourceLabel: run.agentName, diskBaseline: run.scope === 'folder' ? await (await handle.getFile()).text() : undefined, origin: 'agent' });
   }
 
@@ -2642,7 +2695,7 @@ function App() {
     await flushAutomaticSave(); await writerRef.current.jobs.get(key);
     if (dirtyDocumentsRef.current.has(key)) throw new Error('请先成功保存文档，再生成任务包');
     const result = await window.mengxDesktop.handoff(handle.id, prompt, serializeSidecar(fileName, getAnnotations()), anchors?.enabled ? anchors.text : null);
-    if (result?.anchored) setManualTransfer((current) => current && ({ ...current, anchors: { enabled: true, anchors: anchors.anchors }, base: getDocumentSource() }));
+    if (result?.anchored) setManualTransfer((current) => current && ({ ...current, anchors: { enabled: true, anchors: anchors.anchors, wholeDocument: anchors.wholeDocument }, base: getDocumentSource() }));
     markSent(tasks, { name: '任务文件夹' }, key); return result;
   }
 
@@ -2672,6 +2725,25 @@ function App() {
   }
 
   /** Replace the document with reviewed content. `diskBaseline` is what the file on disk holds now. */
+  // "Insert as total row": find the table in the source and append a Markdown row.
+  tableActionsRef.current = {
+    insertTotal(table) {
+      if (!table || !articleRef.current?.contains(table)) return;
+      const label = language === 'zh' ? '合计' : 'Total';
+      const body = table.tBodies[0]; if (!body) return;
+      const selection = window.getSelection(), saved = selection.rangeCount ? selection.getRangeAt(0) : null;
+      const range = document.createRange(); range.setStart(table.tHead || body, 0); range.setEnd(body, body.childNodes.length);
+      selection.removeAllRanges(); selection.addRange(range);
+      const captured = captureReadingSelection(articleRef.current, getDocumentSource(), documentAnalysis.chunks);
+      selection.removeAllRanges(); if (saved) selection.addRange(saved);
+      const source = getDocumentSource();
+      const next = captured && appendTableRow(source, captured.anchor.sourceOffset, captured.anchor.sourceEnd, totalRowMarkdown(table, label));
+      if (!next) { setNotice(language === 'zh' ? '没能在原文里找到这张表格' : 'Could not find this table in the source'); return; }
+      applySource(next);
+      setNotice(language === 'zh' ? '已插入合计行，可以撤销' : 'Total row inserted; you can undo it');
+    },
+  };
+
   function applySource(final, { diskBaseline } = {}) {
     const key = activeDocumentRef.current.key, handle = fileHandlesRef.current.get(key);
     if (diskBaseline !== undefined && handle && ['MD', 'TXT'].includes(activeDocumentRef.current.kind)) {
@@ -2710,6 +2782,7 @@ function App() {
       const question = current.questions?.get(task.n);
       if (question) { updates.set(task.id, { status: 'question', question }); continue; }
       if (task.type === 'ask') { const answer = current.answers?.get(task.n); updates.set(task.id, answer ? { status: 'answered', answer } : { status: 'open' }); continue; }
+      if (task.scope === 'document') { updates.set(task.id, { status: diff.hunks.some((hunk) => hunk.type === 'change' && decisions[hunk.id] !== 'reject') ? 'resolved' : 'unchanged' }); continue; }
       const gone = resolveTextAnchor(final, mark.anchor).orphaned;
       updates.set(task.id, { status: touched.has(task.id) || gone ? 'resolved' : (current.origin === 'external' ? mark.status : 'unchanged') });
     }
@@ -3245,6 +3318,7 @@ function App() {
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setPathOpen(true); }}><FolderOpen size={16} /><span>{zh ? '按路径打开…' : 'Open by path…'}</span><kbd>{mod} L</kbd></button>
               <button role="menuitem" aria-label={zh ? '保存版本与恢复' : 'Saved versions and recovery'} onClick={() => { setDocumentMenuOpen(false); void showVersions(); }}><RefreshCw size={16} /><span>{zh ? '保存版本与恢复' : 'Saved versions and recovery'}</span></button>
               <span className="menu-separator" />
+              <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setStatsOpen(true); }}><AlignLeft size={16} /><span>{zh ? '文档统计' : 'Document statistics'}</span></button>
               <button role="menuitem" aria-label={copy.export} onClick={() => { setDocumentMenuOpen(false); void exportDraft(); }}><Download size={16} /><span>{copy.export}</span></button>
               <button role="menuitem" aria-label={copy.exportPdf} disabled={Boolean(pdfProgress)} onClick={() => { setDocumentMenuOpen(false); void exportPdf(); }}><FileDown size={16} /><span>{copy.exportPdf}</span></button>
               <span className="menu-separator" />
@@ -3497,30 +3571,35 @@ function App() {
 
         {outlineOpen && !focusMode && !review && tabs.length > 0 && <RedlineRail language={language} mode={railMode} onMode={setRailMode} marks={annotations} numbers={redlineNumbers}
           activeId={markPopover?.id || activeAnnotation} busy={['starting', 'running'].includes(agentRun?.status)} storage={markStore.getSaveState(currentDocumentKey)} onStorage={() => setAgentSettingsOpen(true)}
-          onSelect={(id) => { void goToAnnotation(id).then(() => {
+          onSelect={(id) => {
+            const whole = getAnnotations().find((entry) => entry.id === id);
+            if (whole?.anchor?.document) { openMarkPopover(id, document.querySelector(`.rail-item[data-mark-id="${id}"]`)?.getBoundingClientRect(), { focus: true }); return; }
+            void goToAnnotation(id).then(() => {
             const item = getAnnotations().find((entry) => entry.id === id);
             if (!item || item.type === 'bookmark' || usingRichEditor) return;
             const range = findRenderedAnchor(articleRef.current, item.anchor, documentAnalysis.chunks);
             if (range) openMarkPopover(id, range.getBoundingClientRect());
           }).catch(() => {}); }}
           onRemove={(id) => removeAnnotation(id)} onSend={(ids) => openSendDialog(Array.isArray(ids) ? ids : null)}
+          onDocumentInstruction={(rect) => { const created = addAnnotation('free', { anchor: { text: '', rawQuote: '', document: true, sourceOffset: 0, sourceEnd: 0 }, label: language === 'zh' ? '全文' : 'Whole document' }); openMarkPopover(created.id, rect, { focus: true }); }}
           onBookmark={() => addAnnotation('bookmark', {})} onExport={() => void exportAnnotations()}
           onUndo={() => changeAnnotationHistory('undo')} onRedo={() => changeAnnotationHistory('redo')} canUndo={Boolean(annotationHistory?.past.length)} canRedo={Boolean(annotationHistory?.future.length)}
           onHide={() => setOutlineOpen(false)} />}
         {!outlineOpen && !focusMode && !review && tabs.length > 0 && <button className="reopen-rail" onClick={() => setOutlineOpen(true)} aria-label={rt(language, 'redlines')} title={rt(language, 'redlines')}><PanelRight size={17} />{openRedlines.length > 0 && <span>{openRedlines.length}</span>}</button>}
       </div>
 
+      {statsOpen && <StatsDialog language={language} stats={documentStats(getDocumentSource(), annotations, documentAnalysis.wordCount)} name={fileName} onClose={() => setStatsOpen(false)} />}
       {recentMenu && <div className="recent-menu" role="menu" style={{ left: recentMenu.left, top: recentMenu.top }}><button role="menuitem" onClick={() => removeRecentRecord(recentMenu.file)}><X size={15} />{copy.removeRecent}</button><button role="menuitem" className="danger" onClick={() => void requestSourceDeletion(recentMenu.file)}><Trash2 size={15} />{copy.deleteSource}</button></div>}
       {deleteConfirmation && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteBusy) cancelSourceDeletion(); }}><div className="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-warning"><h2 id="delete-title">{copy.deleteTitle}</h2><p className="delete-filename">{deleteConfirmation.file.name}</p><p className="delete-path">{deleteConfirmation.file.path}</p><p id="delete-warning">{window.mengxDesktop ? (zh ? (platform === 'darwin' ? '将把这个源文件移到废纸篓，需要时可以从废纸篓恢复。' : '将把这个源文件移入回收站，需要时可以从回收站还原。') : (platform === 'darwin' ? 'Move this file to the Trash. You can restore it from the Trash.' : 'Move this file to the Recycle Bin. You can restore it from the Recycle Bin.')) : copy.deleteWarning}</p><div className="dialog-actions"><button autoFocus disabled={deleteBusy} onClick={cancelSourceDeletion}>{copy.cancel}</button><button className="danger-button" disabled={deleteBusy} onClick={() => void confirmSourceDeletion(deleteConfirmation.token)}><Trash2 size={15} />{deleteBusy ? copy.deleting : copy.deleteSource}</button></div></div></div>}
       {selectionTools && !noteDialog && !selectionContextMenu && !markPopover && <div className="selection-tools" style={selectionTools} onMouseDown={(event) => event.preventDefault()}>
-        {['fix', 'expand', 'delete', 'ask'].map((type) => <button key={type} className={`sel-type type-${type}`} onClick={() => startAnnotation(type)} title={rt(language, `typeHint.${type}`)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}{readingMode && <kbd>{{ fix: 'F', expand: 'E', delete: 'D', ask: 'Q' }[type]}</kbd>}</button>)}
+        {['fix', 'expand', 'delete', 'ask', 'free'].map((type) => <button key={type} className={`sel-type type-${type}`} onClick={() => startAnnotation(type)} title={rt(language, `typeHint.${type}`)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}{readingMode && <kbd>{{ fix: 'F', expand: 'E', delete: 'D', ask: 'Q', free: 'I' }[type]}</kbd>}</button>)}
         <span className="sel-divider" />
         <button className="sel-type type-highlight" onClick={() => startAnnotation('highlight')} title={rt(language, 'typeHint.highlight')}><Highlighter size={14} /></button>
         <button className="sel-type type-underline" onClick={() => startAnnotation('underline')} title={rt(language, 'typeHint.underline')}><Underline size={14} /></button>
         <button className="sel-type type-note" onClick={() => openSelectionNote(selectedPassageRef.current)} title={rt(language, 'typeHint.note')}><MessageCircle size={14} /></button>
         <button className="sel-close" aria-label={zh ? '关闭' : 'Close'} onClick={() => setSelectionTools(null)}><X size={14} /></button>
       </div>}
-      {selectionContextMenu && !noteDialog && <div className="selection-context-menu" role="menu" style={{ left: selectionContextMenu.left, top: selectionContextMenu.top }} onMouseDown={(event) => event.preventDefault()}><button role="menuitem" onClick={() => void copySelectedText(selectionContextMenu.text)}><Copy size={15} />{zh ? '复制' : 'Copy'}</button><button role="menuitem" disabled={readingMode} onClick={() => void cutSelectedText(selectionContextMenu.text)}><Scissors size={15} />{zh ? '剪切' : 'Cut'}</button><span className="selection-context-divider" />{['fix', 'expand', 'delete', 'ask'].map((type) => <button key={type} role="menuitem" className={`type-${type}`} disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation(type, selectionContextMenu.anchor)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}<span className="selection-context-divider" /><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('highlight', selectionContextMenu.anchor)}><Highlighter size={15} />{typeLabel(language, 'highlight')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('underline', selectionContextMenu.anchor)}><Underline size={15} />{typeLabel(language, 'underline')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => openSelectionNote(selectionContextMenu.anchor)}><MessageCircle size={15} />{typeLabel(language, 'note')}</button></div>}
+      {selectionContextMenu && !noteDialog && <div className="selection-context-menu" role="menu" style={{ left: selectionContextMenu.left, top: selectionContextMenu.top }} onMouseDown={(event) => event.preventDefault()}><button role="menuitem" onClick={() => void copySelectedText(selectionContextMenu.text)}><Copy size={15} />{zh ? '复制' : 'Copy'}</button><button role="menuitem" disabled={readingMode} onClick={() => void cutSelectedText(selectionContextMenu.text)}><Scissors size={15} />{zh ? '剪切' : 'Cut'}</button><span className="selection-context-divider" />{['fix', 'expand', 'delete', 'ask', 'free'].map((type) => <button key={type} role="menuitem" className={`type-${type}`} disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation(type, selectionContextMenu.anchor)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}<span className="selection-context-divider" /><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('highlight', selectionContextMenu.anchor)}><Highlighter size={15} />{typeLabel(language, 'highlight')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('underline', selectionContextMenu.anchor)}><Underline size={15} />{typeLabel(language, 'underline')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => openSelectionNote(selectionContextMenu.anchor)}><MessageCircle size={15} />{typeLabel(language, 'note')}</button></div>}
       {popoverMark && <MarkPopover key={popoverMark.id} mark={popoverMark} number={redlineNumbers.get(popoverMark.id)} anchorRect={markPopover.rect} language={language} autoFocus={markPopover.focus}
         onChangeType={(type) => updateAnnotation(popoverMark.id, { type })} onChangeNote={(note) => updateAnnotation(popoverMark.id, { note })}
         onRemove={() => removeAnnotation(popoverMark.id)} onClose={() => setMarkPopover(null)} onSend={() => openSendDialog([popoverMark.id])} />}
@@ -3542,13 +3621,13 @@ function App() {
           <button disabled={conflictBusy} onClick={() => setConflictDialog(false)}>{zh ? '稍后处理' : 'Later'}</button>
         </div>
       </div></div>}
-      {sendOpen && <SendDialog language={language} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
+      {sendOpen && <SendDialog language={language} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
       {setupOpen && <SetupWizard language={language} platform={platform} onClose={closeSetup} />}
       {manualTransfer && <ManualTransfer language={language} onClose={() => setManualTransfer(null)} onPackage={() => transferPackage()} onImport={(text) => importTransfer(text, true)} />}
       {agentSettingsOpen && <AgentSettings language={language} onClose={() => setAgentSettingsOpen(false)} onNotice={setNotice} onRecover={recoverAgentRun} />}
       {agentRun && !review && <RunPanel language={language} run={agentRun} onStop={stopAgent} onDismiss={() => { agentRunRef.current = null; setAgentRun(null); }} onSettings={() => setAgentSettingsOpen(true)} onDiagnose={() => void window.mengxDesktop.agents.diagnostics({ overrides: readAgentSettings().overrides, runId: agentRun.id }).then((result) => setNotice('诊断任务已保存：' + result.path)).catch((error) => setNotice(error.message))}
         onRetry={() => void (async () => { const run = agentRunRef.current; if (!run) return; if (activeDocumentRef.current.key !== run.key) await switchTab(run.key); agentRunRef.current = null; setAgentRun(null); openSendDialog(run.tasks.map((task) => task.id)); })().catch((error) => setNotice(error.message))}
-        onReview={() => { const run = agentRunRef.current; if (run && typeof run.proposed === 'string') openReview({ key: run.key, base: run.base, proposed: run.proposed, tasks: run.tasks, answers: run.answers || new Map(), sourceLabel: run.agent.name, diskBaseline: run.diskBaseline, origin: 'agent' }); }} />}
+        onReview={() => { const run = agentRunRef.current; if (run && typeof run.proposed === 'string') openReview({ key: run.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors), tasks: run.tasks, answers: run.answers || new Map(), sourceLabel: run.agent.name, diskBaseline: run.diskBaseline, origin: 'agent' }); }} />}
       {lightbox && <ImageViewer key={lightbox.key || lightbox.src} image={lightbox} language={language} onClose={() => setLightbox(null)} onNotice={setNotice} />}
     </div>
   );

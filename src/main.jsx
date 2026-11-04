@@ -1532,11 +1532,11 @@ function App() {
     const name = file.name || '';
     if (/\.docx$/i.test(name)) {
       // Word charts keep their data; turn each into a Proofline chart (see docx-charts.js).
-      const { extractDocxCharts, insertCharts } = await import('./docx-charts');
+      const { extractDocxCharts, insertCharts, restoreProoflineObjects } = await import('./docx-charts');
       const original = await file.arrayBuffer();
       const extracted = await extractDocxCharts(original, language).catch(() => ({ buffer: original, charts: [] }));
       const result = await mammoth.convertToHtml({ arrayBuffer: extracted.buffer });
-      return { content: insertCharts(htmlDocumentToMarkdown(result.value), extracted.charts), kind: 'DOCX' };
+      return { content: restoreProoflineObjects(insertCharts(htmlDocumentToMarkdown(result.value), extracted.charts)), kind: 'DOCX' };
     }
     if (/\.html?$/i.test(name)) {
       return { content: htmlDocumentToMarkdown(await file.text()), kind: 'HTML' };

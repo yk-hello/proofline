@@ -99,9 +99,11 @@ export async function markdownToDocx({ source, title = '', language = 'zh', load
 
   const quoteBorder = { left: { style: BorderStyle.SINGLE, size: 12, color: 'C8C6BF', space: 8 } };
 
-  async function picture(png, caption) {
+  // The picture's description carries what Proofline needs to turn it back into a chart
+  // or diagram when the .docx is opened again (see restoreProoflineObjects).
+  async function picture(png, caption, restore = '') {
     blocks.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 160, after: 80, line: 240, lineRule: LineRuleType.AUTO },
-      children: [new ImageRun({ type: 'png', data: png.data, transformation: fit(png.width, png.height), altText: { title: caption || 'chart', description: caption || 'chart', name: caption || 'chart' } })] }));
+      children: [new ImageRun({ type: 'png', data: png.data, transformation: fit(png.width, png.height), altText: { title: caption || 'chart', description: restore || caption || 'chart', name: caption || 'chart' } })] }));
   }
 
   async function table(token, compact = false) {
@@ -131,7 +133,7 @@ export async function markdownToDocx({ source, title = '', language = 'zh', load
         case 'blockMath': blocks.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: token.text, font: 'Cambria Math', italics: true })] })); break;
         case 'code': {
           if (/^mermaid$/i.test(token.lang || '') && renderMermaid) {
-            try { const svg = await renderMermaid(token.text); const box = /viewBox="[\d.\s-]*?([\d.]+)\s+([\d.]+)"/.exec(svg); await picture(await svgToPng(svg, box ? Number(box[1]) : undefined, box ? Number(box[2]) : undefined)); break; }
+            try { const svg = await renderMermaid(token.text); const box = /viewBox="[\d.\s-]*?([\d.]+)\s+([\d.]+)"/.exec(svg); await picture(await svgToPng(svg, box ? Number(box[1]) : undefined, box ? Number(box[2]) : undefined), 'diagram', `proofline-mermaid:${encodeURIComponent(token.text)}`); break; }
             catch { /* fall back to the source */ }
           }
           for (const line of token.text.split('\n')) blocks.push(new Paragraph({ spacing: { before: 0, after: 0 }, shading: { type: ShadingType.CLEAR, fill: 'F6F6F4', color: 'auto' },
@@ -156,7 +158,7 @@ export async function markdownToDocx({ source, title = '', language = 'zh', load
           if (pendingChart) {
             const rows = [token.header.map((cell) => decode(cell.text)), ...token.rows.map((row) => row.map((cell) => decode(cell.text)))];
             const { svg } = chartSvg(pendingChart, tableData(rows));
-            try { await picture(await svgToPng(svg, 680, 360), pendingChart.title); } catch { warnings.push('chart'); }
+            try { await picture(await svgToPng(svg, 680, 360), pendingChart.title, `proofline-chart:${encodeURIComponent(pendingChart.raw || '')}`); } catch { warnings.push('chart'); }
             pendingChart = null;
             await table(token, true);
           } else await table(token);
@@ -164,7 +166,7 @@ export async function markdownToDocx({ source, title = '', language = 'zh', load
         }
         case 'html': {
           const directive = DIRECTIVE.exec(token.text);
-          if (directive) { pendingChart = parseChartSpec(directive[1]); break; }
+          if (directive) { pendingChart = { ...parseChartSpec(directive[1]), raw: directive[1].trim() }; break; }
           const text = decode(token.text.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, '')).trim();
           if (text) blocks.push(new Paragraph({ ...extra, children: [new TextRun({ text })] }));
           break;

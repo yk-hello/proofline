@@ -123,3 +123,15 @@ export function insertCharts(markdown, charts) {
     return out.join('\n');
   }).join('\n').replace(/\n{3,}/g, '\n\n');
 }
+
+/**
+ * A .docx exported by Proofline marks its chart and diagram pictures in their
+ * description. Turn them back: chart picture + the data table after it becomes the
+ * chart directive + table; a diagram picture becomes its Mermaid source again.
+ */
+export function restoreProoflineObjects(markdown) {
+  const decode = (value) => { try { return decodeURIComponent(value.replace(/\\(.)/g, '$1')); } catch { return null; } };
+  return markdown
+    .replace(/!\[proofline-chart:([^\]]*)\]\([^)\s]*\)[ \t]*\n+(?=[ \t]{0,3}\|)/g, (all, spec) => { const value = decode(spec); return value === null ? all : `<!-- proofline:chart ${value} -->\n`; })
+    .replace(/!\[proofline-mermaid:([^\]]*)\]\([^)\s]*\)/g, (all, code) => { const value = decode(code); return value === null ? all : `\`\`\`mermaid\n${value.trim()}\n\`\`\``; });
+}

@@ -42,3 +42,14 @@ for (const index of [0, 45, 45000, 89999]) {
 }
 console.log(JSON.stringify({ bytes: Buffer.byteLength(large), chunks: model.chunks.length,
   headings: model.outline.length, matches: matches.length, analysisAndSearchMs: Math.round(performance.now() - started) }));
+
+// A large pasted picture (one long data: line) is rendered, not shown as plain text,
+// and its base64 is not counted as words.
+{
+  const { analyzeDocument: analyze } = await import('../src/document-model.js');
+  const picture = '![图](data:image/png;base64,' + 'A'.repeat(300000) + ')';
+  const model = analyze(`# 标题\n\n开头文字。\n\n${picture}\n\n结尾文字。\n`);
+  if (model.chunks.some((chunk) => chunk.plain)) throw new Error('picture line fell back to plain text');
+  if (model.wordCount > 20) throw new Error(`base64 counted as words: ${model.wordCount}`);
+  console.log('large picture line ok');
+}

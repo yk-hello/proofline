@@ -26,13 +26,16 @@ export function analyzeDocument(source, progress = () => {}) {
     if (next < 0) next = source.length;
     else next += 1;
     const fullEnd = next;
-    next = Math.min(next, offset + 40000);
+    // A pasted or imported picture is one long data: line; keep it whole so it renders.
+    const imageLine = fullEnd - offset > 40000 && fullEnd - offset < 16e6 && /^ {0,3}!\[[^\]\n]*\]\(data:image\/[\w.+-]+;base64,/.test(source.slice(offset, offset + 400));
+    next = imageLine ? fullEnd : Math.min(next, offset + 40000);
     const oversizedLine = continuedLine || next < fullEnd;
     const raw = source.slice(offset, next).replace(/\r?\n$/, '');
     if (oversizedLine) {
       flush(offset);
       chunkPlain = true;
     }
+    if (imageLine && offset > start) flush(offset);
     const heading = !fence && !oversizedLine && /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(raw);
     const setext = !fence && !oversizedLine && /^ {0,3}(=+|-+)[ \t]*$/.exec(raw)
       && previousLine && previousLine.text.trim() && !/^\s*(?:[#>|]|[-*+]\s|\d+\.\s|\[.*\]:)/.test(previousLine.text);
@@ -60,14 +63,15 @@ export function analyzeDocument(source, progress = () => {}) {
         summary = raw.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim().slice(0, 180);
       }
     }
-    wordCount += (raw.match(/[\u3400-\u9fff]/g)?.length || 0) + (raw.match(/[A-Za-z0-9_]+/g)?.length || 0);
+    const counted = raw.length > 2000 ? raw.replace(/\(data:[^)\s]*\)/g, '') : raw;
+    wordCount += (counted.match(/[\u3400-\u9fff]/g)?.length || 0) + (counted.match(/[A-Za-z0-9_]+/g)?.length || 0);
     if (next === fullEnd) line += 1;
     continuedLine = next < fullEnd;
     previousLine = !fence && !oversizedLine ? { text: raw, offset, line: line - 1 } : null;
     offset = next;
     // An enormous single block still gets bounded rendering; its fallback is plain text.
     if (oversizedLine || offset - start >= 40000) {
-      if (Boolean(fence) || !heading || oversizedLine) chunkPlain = true;
+      if (Boolean(fence) || (!heading && !imageLine) || oversizedLine) chunkPlain = true;
       flush(offset);
     }
     const percent = Math.floor(offset / Math.max(source.length, 1) * 100);

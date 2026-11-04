@@ -42,6 +42,11 @@ try {
   // Export Word: add a Mermaid diagram and an image first so every path is exercised.
   const icon = 'data:image/png;base64,' + (await readFile('build/icon.png')).toString('base64');
   await page.evaluate(async (icon) => {
+    // A large photo-like picture (noise compresses badly), like a real screenshot or photo.
+    const canvas = document.createElement('canvas'); canvas.width = 500; canvas.height = 300;
+    const context = canvas.getContext('2d'), pixels = context.createImageData(500, 300);
+    for (let index = 0; index < pixels.data.length; index++) pixels.data[index] = index % 4 === 3 ? 255 : Math.random() * 255;
+    context.putImageData(pixels, 0, 0); icon = canvas.toDataURL('image/png');
     const extra = '\n\n## 附录\n\n- 第一项 **加粗** 和 `代码`\n- 第二项 [链接](https://example.com)\n\n1. 步骤一\n2. 步骤二\n\n> 引用一段话。\n\n```mermaid\npie title 渠道\n  "线上" : 45\n  "门店" : 30\n```\n\n公式 $E = mc^2$。\n\n![图标](' + icon + ')\n';
     await window.prooflineReader.setReadingMode(false);
     await window.prooflineReader.replaceContent(window.prooflineReader.getContent().content + extra);
@@ -60,6 +65,20 @@ try {
   assert.ok(!/\[图片/.test(xml), 'every image was embedded');
   assert.ok(!/w:line="\d+"(?![^>]*w:lineRule)/.test(xml + await zip.file('word/styles.xml').async('string')), 'line spacing is never exact (it would clip pictures)');
   checks.push('export-word');
+
+  // Reopening the exported file restores the charts and the diagram, and shows plain pictures.
+  const exported = [...await readFile(file)];
+  await page.evaluate(async (data) => { await window.prooflineReader.openFile({ file: new File([new Uint8Array(data)], 'exported.docx') }); }, exported);
+  await page.waitForFunction(() => window.prooflineReader.getState().document.name.startsWith('exported'));
+  const reopened = await page.evaluate(() => window.prooflineReader.getContent().content);
+  await writeFile(path.join(output, 'reopened.md'), reopened);
+  assert.deepEqual([...reopened.matchAll(/<!-- proofline:chart (type=[^ ]+(?: horizontal)?)/g)].map((match) => match[1]), ['type=bar', 'type=stacked horizontal', 'type=line', 'type=pie', 'type=doughnut']);
+  assert.match(reopened, /```mermaid\npie title 渠道/);
+  assert.equal((reopened.match(/data:image/g) || []).length, 1, 'only the real picture stays a picture');
+  await page.waitForFunction(() => document.querySelectorAll('.pl-chart-block').length === 5 && document.querySelector('.pl-diagram-host')?.shadowRoot?.querySelector('svg') && [...document.querySelectorAll('.document-content img')].some((img) => img.complete && img.naturalWidth > 0), null, { timeout: 20000 });
+  assert.equal(await page.locator('.document-content pre:not(.mermaid-block)').count(), 0, 'no picture falls back to plain text');
+  await page.screenshot({ path: path.join(output, 'reopened.png') });
+  checks.push('reopen-exported-word');
   try {
     execFileSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', output, file], { stdio: 'ignore', timeout: 120000 });
     assert.ok(existsSync(path.join(output, 'exported.pdf')), 'LibreOffice opened the exported file');

@@ -28,6 +28,8 @@ try {
   const text = await page.locator('.document-content').evaluate((node) => node.textContent);
   assert.ok(!text.includes('季度销售额') && !text.includes('源码'), 'chart labels stay out of document text');
   assert.equal(await page.locator('pre.mermaid-block').isVisible(), false, 'diagram replaces its source');
+  const bars = await page.locator('.pl-chart-block').evaluate((block) => block.shadowRoot.querySelectorAll('path[data-tip]').length);
+  assert.equal(bars, 8, 'four quarters x two series; the totals footer is not chart data');
   await page.locator('.pl-chart-block').screenshot({ path: `${output}/chart.png` });
   checks.push('charts-and-diagrams-render');
 

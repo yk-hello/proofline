@@ -59,7 +59,8 @@ export function tableData(rows) {
 }
 
 export function rowsFromTable(table) {
-  return [...table.querySelectorAll('tr')].map((row) => [...row.children].map((cell) => cell.textContent.trim()));
+  // Only the author's rows: the reader's totals footer (tfoot) is not chart data.
+  return [...table.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')].map((row) => [...row.children].map((cell) => cell.textContent.trim()));
 }
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);

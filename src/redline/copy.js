@@ -12,7 +12,7 @@ const STRINGS = {
     'typeHint.ask': 'AI 指令：向 AI 提问，不改文档', 'typeHint.highlight': '个人标记：只给自己看，不发给 AI', 'typeHint.underline': '个人标记：只给自己看，不发给 AI',
     'typeHint.note': '个人批注：只给自己看，不发给 AI',
     redlines: '指令', marks: '标记', contents: '目录', files: '文件',
-    redlineEmpty: '选中正文，选「修改 / 展开 / 删除 / 提问」，就能给 AI 下达修改指令。',
+    redlineEmpty: '选中正文，选「修改 / 展开 / 删除 / 提问 / 自由指令」，就能给 AI 下达修改指令；不选文字可以点上面的「全文指令」。',
     marksEmpty: '个人标记只给自己看，不会发给 AI。选中正文后选「高亮 / 划线 / 批注」。',
     open: '待处理', sent: '已发送', resolved: '已处理', unchanged: '未改动', answered: '已回答', question: 'AI 有疑问',
     aiQuestion: 'AI 的疑问', questions: 'AI 的疑问', extraNote: '补充说明（可选）', extraNoteHint: '会写进任务里，例如全文的读者、语气、术语要求，或对 AI 上次疑问的回答。',

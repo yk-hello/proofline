@@ -28,7 +28,7 @@ const STRINGS = {
     scopeFolder: '文档所在文件夹', scopeFolderHint: 'AI 会先改动磁盘原文件，再进入审阅；其他文件的改动不会自动撤销。',
     groupCli: '本机 AI（运行后进入审阅）', noCli: '本机没有检测到能直接运行的命令行 AI。安装 Claude Code、Codex CLI、Gemini CLI 等以后点右上角重新检测，或在设置里添加自定义命令。', groupCustom: '自定义',
     notInstalled: '未检测到', detecting: '正在检测本机的 AI 工具…', start: '开始', cancel: '取消', settings: '设置',
-    desktopOnly: '一键运行本机 AI 需要桌面版', tasksSummary: (n) => `将发送 ${n} 条 AI 指令`,
+    desktopOnly: '一键运行本机 AI 需要桌面版', localNeedsFile: '这篇文档不能直接交给本机 AI：它不是磁盘上的 .md / .txt 文件（例如示例文档，或从 Word / HTML 导入后还没另存）。请先另存为 .md 或打开自己的文档，也可以选「其他 AI / 其他设备」。', tasksSummary: (n) => `将发送 ${n} 条 AI 指令`,
     runTitle: (name) => `${name} 正在修改`, running: '运行中', runDone: 'AI 已完成，正在打开审阅', runFailed: 'AI 运行失败', stop: '停止',
     runOutput: '运行输出', noOutput: '等待输出…', exitCode: (code) => `退出代码 ${code}`,
     // Paste
@@ -83,7 +83,7 @@ const STRINGS = {
     scopeFolder: 'The document folder', scopeFolderHint: 'The AI changes the source on disk before review. Changes to other files cannot be rolled back here.',
     groupCli: 'AI on this computer (review after run)', noCli: 'No command-line AI that runs here was found. Install Claude Code, Codex CLI, Gemini CLI or similar and check again, or add a custom command in settings.', groupCustom: 'Custom',
     notInstalled: 'Not found', detecting: 'Looking for AI tools on this computer…', start: 'Start', cancel: 'Cancel', settings: 'Settings',
-    desktopOnly: 'Running local AI tools needs the desktop app', tasksSummary: (n) => `${n} AI instruction${n === 1 ? '' : 's'} will be sent`,
+    desktopOnly: 'Running local AI tools needs the desktop app', localNeedsFile: 'This document can’t go to a local AI: it isn’t a .md / .txt file on disk (for example the sample document, or a Word / HTML import not yet saved). Save it as .md or open your own document first, or choose “Other AI / device”.', tasksSummary: (n) => `${n} AI instruction${n === 1 ? '' : 's'} will be sent`,
     runTitle: (name) => `${name} is editing`, running: 'Running', runDone: 'AI finished. Opening review', runFailed: 'The AI run failed', stop: 'Stop',
     runOutput: 'Output', noOutput: 'Waiting for output…', exitCode: (code) => `Exit code ${code}`,
     pasteTitle: 'Paste AI reply', pasteHint: 'Paste the full reply. Proofline-formatted blocks and a fully revised document both work.',

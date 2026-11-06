@@ -103,6 +103,7 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
         <textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, 'extraNoteHint')} />
       </label>}
       <footer className="dialog-actions">
+        {bridge && localKind && !canRunLocal && <p className="dialog-actions-note" role="status">{t(language, 'localNeedsFile')}</p>}
         <button onClick={onClose}>{t(language, 'cancel')}</button>
         <button className="primary-button" disabled={blocked} onClick={start}>{t(language, 'start')} <kbd>{modifierKey()} ↵</kbd></button>
       </footer>

@@ -3,19 +3,19 @@ import { X, Check, RefreshCw, FileText, Pin, Bot } from 'lucide-react';
 
 const COPY = {
   zh: {
-    title: '开始使用 Proofline', subtitle: '两步设好，以后可以在「更多 → 默认应用与 AI」里再看。',
-    defaultTitle: '设为默认应用', defaultBody: '双击 Markdown 和文本文件时直接用 Proofline 打开。Windows 需要你在系统设置里点一下确认。',
+    title: '开始使用 Stetwise', subtitle: '两步设好，以后可以在「更多 → 默认应用与 AI」里再看。',
+    defaultTitle: '设为默认应用', defaultBody: '双击 Markdown 和文本文件时直接用 Stetwise 打开。Windows 需要你在系统设置里点一下确认。',
     defaultButton: '打开系统设置', defaultDone: '已是默认应用', recheck: '重新检测',
-    pinTitle: '固定到任务栏', pinBody: 'Windows 11 不允许程序自己固定。在任务栏的 Proofline 图标上点右键，选「固定到任务栏」。', pinDone: '已固定',
+    pinTitle: '固定到任务栏', pinBody: 'Windows 11 不允许程序自己固定。在任务栏的 Stetwise 图标上点右键，选「固定到任务栏」。', pinDone: '已固定',
     aiTitle: '本机 AI', aiBody: '下面列出能启动的命令行工具；登录与服务连接还需分别检查。其他 AI 或设备可用「其他 AI / 其他设备」导出任务文件夹，改好后再导入。',
     checking: '正在检测…', none: '没有检测到能直接运行的命令行 AI。安装 Claude Code、Codex CLI、Gemini CLI 等以后点右上角重新检测。',
     done: '完成',
   },
   en: {
-    title: 'Set up Proofline', subtitle: 'Two steps. See them again later under More → Default app and AI.',
-    defaultTitle: 'Make Proofline the default app', defaultBody: 'Open Markdown and text files in Proofline with a double-click. Windows asks you to confirm in Settings.',
-    defaultButton: 'Open Settings', defaultDone: 'Proofline is the default', recheck: 'Check again',
-    pinTitle: 'Pin to taskbar', pinBody: 'Windows 11 does not let apps pin themselves. Right-click the Proofline icon on the taskbar and choose Pin to taskbar.', pinDone: 'Pinned',
+    title: 'Set up Stetwise', subtitle: 'Two steps. See them again later under More → Default app and AI.',
+    defaultTitle: 'Make Stetwise the default app', defaultBody: 'Open Markdown and text files in Stetwise with a double-click. Windows asks you to confirm in Settings.',
+    defaultButton: 'Open Settings', defaultDone: 'Stetwise is the default', recheck: 'Check again',
+    pinTitle: 'Pin to taskbar', pinBody: 'Windows 11 does not let apps pin themselves. Right-click the Stetwise icon on the taskbar and choose Pin to taskbar.', pinDone: 'Pinned',
     aiTitle: 'AI on this computer', aiBody: 'These CLI programs can start. Check sign-in and service connection separately. Other AI / device exports a task folder and imports the result.',
     checking: 'Checking…', none: 'No command-line AI that runs here was found. Install Claude Code, Codex CLI, Gemini CLI and others, then check again.',
     done: 'Done',
@@ -28,6 +28,7 @@ export default function SetupWizard({ language, onClose, platform }) {
   const [defaults, setDefaults] = useState(null);
   const [pinned, setPinned] = useState(null);
   const [cli, setCli] = useState(null);
+  const [missingCli, setMissingCli] = useState([]);
 
   async function refresh(force = false) {
     if (!system) return;
@@ -37,6 +38,7 @@ export default function SetupWizard({ language, onClose, platform }) {
     ]);
     setDefaults(nextDefaults); setPinned(nextPinned);
     setCli(detected.filter((item) => item.kind === 'cli' && item.available));
+    setMissingCli(detected.filter((item) => item.kind === 'cli' && !item.available));
   }
   useEffect(() => {
     void refresh();
@@ -79,6 +81,7 @@ export default function SetupWizard({ language, onClose, platform }) {
             {!cli ? <p className="setup-muted">{copy.checking}</p> : cli.length
               ? <div className="setup-chips">{cli.map((item) => <span key={item.id} className="ok" title={item.path}><Check size={12} />{item.name}<small>{item.version}</small></span>)}</div>
               : <p className="setup-muted">{copy.none}</p>}
+            {cli && missingCli.length > 0 && <p className="setup-muted">{language === 'zh' ? `没找到：${missingCli.map((item) => item.name).join('、')}。装在别处的，可以在「更多 → AI 工具设置」里填写路径。` : `Not found: ${missingCli.map((item) => item.name).join(', ')}. If one is installed elsewhere, set its path in More → AI tools.`}</p>}
           </div>
         </section>
       </div>

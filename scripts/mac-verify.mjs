@@ -8,7 +8,7 @@ const report={host:process.platform,arch:process.arch,packaging:false,macHostVer
 if(process.platform!=='darwin'){
   report.status='skipped';report.reason='This command requires macOS; use test:mac-contracts for off-host checks.';
 }else{
-  const stages=[['contracts','scripts/mac-contracts.test.mjs'],['core','scripts/redline-core.test.mjs'],['storage','scripts/agents-storage.test.mjs'],['adapters','scripts/cli-adapters.test.mjs'],['web-build','node_modules/vite/bin/vite.js','build'],['desktop','scripts/redline-desktop.test.mjs',...(process.argv.includes('--live-gemini')?['--live-gemini']:[])],['native','scripts/mac-native.test.mjs']];
+  const stages=[['contracts','scripts/mac-contracts.test.mjs'],['core','scripts/review-core.test.mjs'],['storage','scripts/agents-storage.test.mjs'],['adapters','scripts/cli-adapters.test.mjs'],['web-build','node_modules/vite/bin/vite.js','build'],['desktop','scripts/review-desktop.test.mjs',...(process.argv.includes('--live-gemini')?['--live-gemini']:[])],['native','scripts/mac-native.test.mjs']];
   report.status='running';
   for(const [name,...args] of stages){
     console.log('Running '+name+'; log: '+path.join(output,name+'.log'));

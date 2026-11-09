@@ -1,12 +1,12 @@
 // Charts stored as plain Markdown tables with one hidden directive line above them:
 //
-//   <!-- proofline:chart type=bar title="季度销售额" unit="万元" -->
+//   <!-- stetwise:chart type=bar title="季度销售额" unit="万元" -->
 //   | 季度 | 线上 | 门店 |
 //   |---|---:|---:|
 //   | Q1 | 80 | 40 |
 //
 // Other Markdown apps show the table (the comment is invisible), so no data is lost,
-// and an AI edits the numbers like any other table. Proofline draws the chart inside a
+// and an AI edits the numbers like any other table. Stetwise draws the chart inside a
 // shadow root, so chart labels never become document text for marks or search.
 
 export const CHART_TYPES = ['bar', 'stacked', 'hbar', 'line', 'area', 'pie', 'doughnut', 'radar', 'scatter'];
@@ -18,7 +18,8 @@ export const SERIES_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87b
 const INK = '#0b0b0b', INK_2 = '#52514e', MUTED = '#8a8984', GRID = '#e7e5df', SURFACE = '#fcfcfb';
 const FONT = '"Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif';
 
-export const DIRECTIVE = /<!--\s*proofline:chart\b([^>]*?)-->/i;
+// Documents written before the rename say proofline:chart; both are read, new ones say stetwise:chart.
+export const DIRECTIVE = /<!--\s*(?:stetwise|proofline):chart\b([^>]*?)-->/i;
 
 export function parseChartSpec(text = '') {
   const spec = { type: 'bar' };
@@ -38,7 +39,7 @@ export function parseChartSpec(text = '') {
 export function chartDirective(spec) {
   const parts = [`type=${spec.stacked && spec.type === 'bar' ? 'stacked' : spec.horizontal && spec.type === 'bar' ? 'hbar' : spec.type}${spec.stacked && spec.horizontal && spec.type === 'bar' ? ' horizontal' : ''}`];
   for (const key of ['title', 'unit']) if (spec[key]) parts.push(`${key}="${String(spec[key]).replaceAll('"', "'")}"`);
-  return `<!-- proofline:chart ${parts.join(' ')} -->`;
+  return `<!-- stetwise:chart ${parts.join(' ')} -->`;
 }
 
 /** Parse a number the way people write it in tables: 1,200 / 12.5% / ¥80 / 3.2万. */
@@ -241,7 +242,7 @@ export function hydrateChart(block, labels = {}) {
   view.addEventListener('click', () => { const on = block.classList.toggle('show-data'); view.setAttribute('aria-pressed', String(on)); });
   root.querySelector('.mark').addEventListener('click', () => {
     block.classList.add('show-data'); view.setAttribute('aria-pressed', 'true');
-    block.dispatchEvent(new CustomEvent('proofline:select-component', { bubbles: true, composed: true, detail: { node: table } }));
+    block.dispatchEvent(new CustomEvent('stetwise:select-component', { bubbles: true, composed: true, detail: { node: table } }));
   });
 }
 
@@ -260,7 +261,7 @@ export function hydrateMermaid(pre, render, labels = {}) {
   view.addEventListener('click', () => { const on = pre.classList.toggle('diagram-source-visible'); view.setAttribute('aria-pressed', String(on)); });
   root.querySelector('.mark').addEventListener('click', () => {
     pre.classList.add('diagram-source-visible'); view.setAttribute('aria-pressed', 'true');
-    pre.dispatchEvent(new CustomEvent('proofline:select-component', { bubbles: true, composed: true, detail: { node: pre.querySelector('code') || pre } }));
+    pre.dispatchEvent(new CustomEvent('stetwise:select-component', { bubbles: true, composed: true, detail: { node: pre.querySelector('code') || pre } }));
   });
   render(code).then((svg) => {
     root.querySelector('.chart').innerHTML = svg; pre.dataset.diagramState = 'rendered'; pre.classList.add('diagram-rendered');

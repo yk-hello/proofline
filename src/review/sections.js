@@ -1,4 +1,4 @@
-import { splitBlocks } from '../../electron/redline-core.mjs';
+import { splitBlocks } from '../../electron/review-core.mjs';
 
 const WHOLE_LIMIT = 30000;   // documents up to this size are edited in one piece
 const PART_TARGET = 24000;   // otherwise edit parts of about this size

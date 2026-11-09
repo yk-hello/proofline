@@ -38,7 +38,7 @@ export default function AgentSettings({ language, onClose, onRecover }) {
         {error && <p role="alert" className="settings-error">{error}</p>}
         {system && <section className="storage-settings"><h3>{zh ? 'JSON 与任务保存位置' : 'JSON and task storage'}</h3><p>{storage?.path}</p>
           {storage?.error && <p role="alert" className="settings-error">{storage.error}</p>}
-          <p className="settings-hint">{zh ? '默认在安装文件夹的 ProoflineData；Mac 在 .app 旁边。迁移时复制整个目录；CLI 账号需要在新设备登录。' : 'ProoflineData in the installation folder, beside .app on Mac. Copy this directory to move devices; CLI sign-in is required again.'}</p>
+          <p className="settings-hint">{zh ? '默认在安装文件夹的 StetwiseData；Mac 在 .app 旁边。迁移时复制整个目录；CLI 账号需要在新设备登录。' : 'StetwiseData in the installation folder, beside .app on Mac. Copy this directory to move devices; CLI sign-in is required again.'}</p>
           <button onClick={() => void system.openStorage().catch((error) => setError(error.message))}>{zh ? '打开保存位置' : 'Open folder'}</button>
           <button onClick={() => void system.chooseStorage().then((value) => { if (value) setStorage(value); }).catch((error) => setError(error.message))}>{zh ? '迁移到其他位置' : 'Move storage'}</button>
         </section>}

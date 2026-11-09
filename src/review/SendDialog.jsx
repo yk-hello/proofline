@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Terminal, Wrench, Settings2, RefreshCw, Check } from 'lucide-react';
 import { t, modifierKey } from './copy';
 import { customAgents, readAgentSettings, writeAgentSettings } from './agents';
 
 const GROUP_ICONS = { cli: Terminal, custom: Wrench };
 
-export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings, hidden = [] }) {
+export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings, onSaveAs = null, hidden = [] }) {
   const [settings, setSettings] = useState(readAgentSettings);
   const [detected, setDetected] = useState(null);
   const [selected, setSelected] = useState(settings.lastAgent);
@@ -13,6 +13,9 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const bridge = window.mengxDesktop?.agents;
+  // Keyboard focus moves into the dialog, so Esc and Ctrl Enter work right away.
+  const dialogRef = useRef(null);
+  useEffect(() => { dialogRef.current?.focus(); }, []);
 
   async function detect(refresh = false) {
     if (!bridge) { setDetected([]); return; }
@@ -32,6 +35,8 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
   }, [detected, settings, bridge, language]);
 
   const all = groups.flatMap((group) => group.items);
+  // Tools that were looked for but not found stay visible, so a missing one can be fixed here.
+  const missing = (detected || []).filter((item) => item.kind === 'cli' && !item.available);
   const agent = all.find((item) => item.id === selected && item.available) || null;
   useEffect(() => {
     if (agent || !detected) return;
@@ -51,7 +56,7 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
   }
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="send-dialog" role="dialog" aria-modal="true" aria-labelledby="send-title" onKeyDown={(event) => {
+    <div ref={dialogRef} tabIndex={-1} className="send-dialog" role="dialog" aria-modal="true" aria-labelledby="send-title" onKeyDown={(event) => {
       if (event.key === 'Escape') onClose();
       if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) start();
     }}>
@@ -76,10 +81,14 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
                   className={`agent-option ${selected === item.id ? 'selected' : ''}`} title={item.path || ''}
                   onClick={() => setSelected(item.id)} onDoubleClick={() => { setSelected(item.id); }}>
                   <span className="agent-name">{item.name}</span>
-                  <span className="agent-vendor">{item.version ? `${item.vendor} · ${item.version}` : item.vendor}{item.auth === 'required' ? (language === 'zh' ? ' · 需要登录' : ' · Sign in required') : item.auth === 'ready' ? (language === 'zh' ? ' · 已登录' : ' · Signed in') : ''}</span>
+                  <span className="agent-vendor">{item.version ? `${item.vendor} · ${item.version}` : item.vendor}{item.bundled ? (language === 'zh' ? ' · Claude 桌面版自带' : ' · bundled with Claude desktop') : ''}{item.auth === 'required' ? (language === 'zh' ? ' · 需要登录' : ' · Sign in required') : item.auth === 'ready' ? (language === 'zh' ? ' · 已登录' : ' · Signed in') : ''}</span>
                   {selected === item.id && <Check size={14} className="agent-check" />}
                 </button>)}
               </div>}
+            {group.kind === 'cli' && detected && missing.length > 0 && <div className="agent-missing">
+              <span>{language === 'zh' ? `没找到（${missing.length}）：` : `Not found (${missing.length}): `}{missing.slice(0, 6).map((item) => item.name).join(language === 'zh' ? '、' : ', ')}{missing.length > 6 ? (language === 'zh' ? ' 等' : ' and more') : ''}</span>
+              <button onClick={onSettings}>{language === 'zh' ? '填写路径' : 'Set a path'}</button>
+            </div>}
           </section>;
         })}
       </div>
@@ -103,7 +112,7 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
         <textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder={t(language, 'extraNoteHint')} />
       </label>}
       <footer className="dialog-actions">
-        {bridge && localKind && !canRunLocal && <p className="dialog-actions-note" role="status">{t(language, 'localNeedsFile')}</p>}
+        {bridge && localKind && !canRunLocal && <p className="dialog-actions-note" role="status">{t(language, 'localNeedsFile')}{onSaveAs && <button className="text-button" onClick={onSaveAs}>{language === 'zh' ? '另存为 .md 并继续' : 'Save as .md and continue'}</button>}</p>}
         <button onClick={onClose}>{t(language, 'cancel')}</button>
         <button className="primary-button" disabled={blocked} onClick={start}>{t(language, 'start')} <kbd>{modifierKey()} ↵</kbd></button>
       </footer>

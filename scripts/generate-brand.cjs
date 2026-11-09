@@ -1,4 +1,4 @@
-// Renders the Proofline icon set and NSIS bitmaps: node scripts/generate-brand.cjs build
+// Renders the Stetwise icon set and NSIS bitmaps: node scripts/generate-brand.cjs build
 const { chromium } = require('playwright');
 const fs = require('fs');
 const { PNG } = require('pngjs');
@@ -16,7 +16,9 @@ const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}"
 <rect x="7" y="9" width="18" height="3" fill="#FFF"/><rect x="7" y="15" width="18" height="3" fill="#FFF"/><rect x="7" y="21" width="10" height="3" fill="#FFF"/>
 <line x1="5.5" y1="27" x2="26.5" y2="6" stroke="#FF2D1A" stroke-width="4"/></svg>`;
 (async () => {
-  const browser = await chromium.launch();
+  // Like the browser tests: CHROME_PATH / EDGE_PATH, else the system Edge, else Playwright's own.
+  const executablePath = [process.env.CHROME_PATH, process.env.EDGE_PATH, 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((item) => item && fs.existsSync(item));
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
   const page = await browser.newPage();
   async function render(html, w, h, file, transparent = true) {
     await page.setViewportSize({ width: w, height: h });
@@ -31,7 +33,7 @@ const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}"
   const sizes = [16, 24, 32, 48, 64, 128, 256];
   const pngs = [];
   for (const size of sizes) pngs.push(await render(size <= 32 ? small(size) : icon(size, 180), size, size));
-  fs.writeFileSync(`${out}/redline.png`, pngs.at(-1));
+  fs.writeFileSync(`${out}/icon-256.png`, pngs.at(-1));
   // ICO with embedded PNGs
   const header = Buffer.alloc(6 + 16 * pngs.length);
   header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(pngs.length, 4);
@@ -42,13 +44,13 @@ const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}"
     header.writeUInt8(0, entry + 2); header.writeUInt8(0, entry + 3); header.writeUInt16LE(1, entry + 4); header.writeUInt16LE(32, entry + 6);
     header.writeUInt32LE(png.length, entry + 8); header.writeUInt32LE(offset, entry + 12); offset += png.length;
   });
-  fs.writeFileSync(`${out}/redline.ico`, Buffer.concat([header, ...pngs]));
+  fs.writeFileSync(`${out}/icon.ico`, Buffer.concat([header, ...pngs]));
   // NSIS bitmaps (24-bit BMP)
   const font = "font-family:'Inter Tight',Arial,sans-serif";
-  const headerHtml = `<div style="width:150px;height:57px;background:#fff;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;box-sizing:border-box;border-bottom:3px solid #0A0A0A">${small(30)}<span style="${font};font-weight:900;font-size:15px;letter-spacing:-0.5px;margin-left:7px;color:#0A0A0A">PROOFLINE</span></div>`;
+  const headerHtml = `<div style="width:150px;height:57px;background:#fff;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;box-sizing:border-box;border-bottom:3px solid #0A0A0A">${small(30)}<span style="${font};font-weight:900;font-size:15px;letter-spacing:-0.5px;margin-left:7px;color:#0A0A0A">STETWISE</span></div>`;
   const sideHtml = `<div style="width:164px;height:314px;background:#0A0A0A;display:flex;flex-direction:column;justify-content:space-between;padding:22px 18px;box-sizing:border-box;color:#fff;${font}">
     <div>${icon(56, 0).replace('fill="#0A0A0A"', 'fill="#0A0A0A" stroke="#ffffff" stroke-width="40"')}</div>
-    <div><div style="font-weight:900;font-size:22px;letter-spacing:-0.5px;line-height:1">PROOFLINE</div><div style="margin-top:8px;font-size:11px;color:#bdbdbd;line-height:1.5">Read. Mark. Revise.</div><div style="margin-top:14px;height:6px;background:#FF2D1A;width:56px"></div></div></div>`;
+    <div><div style="font-weight:900;font-size:22px;letter-spacing:-0.5px;line-height:1">STETWISE</div><div style="margin-top:8px;font-size:11px;color:#bdbdbd;line-height:1.5">Read. Mark. Revise.</div><div style="margin-top:14px;height:6px;background:#FF2D1A;width:56px"></div></div></div>`;
   for (const [html, w, h, name] of [[headerHtml, 150, 57, 'installer-header.bmp'], [sideHtml, 164, 314, 'installer-sidebar.bmp']]) {
     const png = PNG.sync.read(await render(html, w, h, null, false));
     const rowSize = Math.ceil(w * 3 / 4) * 4, size = 54 + rowSize * h, bmp = Buffer.alloc(size);
@@ -60,7 +62,8 @@ const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}"
       bmp[dst] = png.data[src + 2]; bmp[dst + 1] = png.data[src + 1]; bmp[dst + 2] = png.data[src];
     }
     fs.writeFileSync(`${out}/${name}`, bmp);
-    fs.writeFileSync(`/tmp/brand/${name}.png`, PNG.sync.write(png));
+    // A PNG preview of each bitmap, only when asked for: BRAND_PREVIEW=<folder>.
+    if (process.env.BRAND_PREVIEW) fs.writeFileSync(require('path').join(process.env.BRAND_PREVIEW, `${name}.png`), PNG.sync.write(png));
   }
   await browser.close();
 })();

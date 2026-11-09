@@ -9,5 +9,7 @@ test-fixtures/*.pdf
 *.log
 .vite/
 _sync/
+.stetwise-data/
+# Before the rename the development data folder was .redline-data; the app moves it on first start.
 .redline-data/
-ProoflineData/
+StetwiseData/

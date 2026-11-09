@@ -14,14 +14,14 @@ const output = path.resolve('test-fixtures/results/mac-contracts-' + Date.now())
 await mkdir(output,{recursive:true});
 const checks=[];
 for(const [executable,expected] of [
-  ['/Applications/Proofline.app/Contents/MacOS/Proofline','/Applications/ProoflineData'],
-  ['/Users/测试用户/My Apps/Proofline.app/Contents/MacOS/Proofline','/Users/测试用户/My Apps/ProoflineData'],
-  ['/Volumes/Proofline/Proofline.app/Contents/MacOS/Proofline','/Volumes/Proofline/ProoflineData'],
-  ['/tmp/AppTranslocation/UUID/d/Proofline.app/Contents/MacOS/Proofline','/tmp/AppTranslocation/UUID/d/ProoflineData'],
-  ['/Users/a/parent.app/child/Proofline.app/Contents/MacOS/Proofline','/Users/a/parent.app/child/ProoflineData'],
+  ['/Applications/Stetwise.app/Contents/MacOS/Stetwise','/Applications/StetwiseData'],
+  ['/Users/测试用户/My Apps/Stetwise.app/Contents/MacOS/Stetwise','/Users/测试用户/My Apps/StetwiseData'],
+  ['/Volumes/Stetwise/Stetwise.app/Contents/MacOS/Stetwise','/Volumes/Stetwise/StetwiseData'],
+  ['/tmp/AppTranslocation/UUID/d/Stetwise.app/Contents/MacOS/Stetwise','/tmp/AppTranslocation/UUID/d/StetwiseData'],
+  ['/Users/a/parent.app/child/Stetwise.app/Contents/MacOS/Stetwise','/Users/a/parent.app/child/StetwiseData'],
 ]) assert.equal(installationDirectory({packaged:true,executable,platform:'darwin',env:{}}),expected);
-assert.equal(installationDirectory({packaged:false,appPath:'/Users/测试/source folder',platform:'darwin',env:{}}),'/Users/测试/source folder/.redline-data');
-assert.equal(installationDirectory({packaged:true,executable:'/Applications/Proofline.app/Contents/MacOS/Proofline',platform:'darwin',env:{REDLINE_DATA_DIR:'/Users/a/data',PORTABLE_EXECUTABLE_DIR:'C:\\old'}}),'/Users/a/data');
+assert.equal(installationDirectory({packaged:false,appPath:'/Users/测试/source folder',platform:'darwin',env:{}}),'/Users/测试/source folder/.stetwise-data');
+assert.equal(installationDirectory({packaged:true,executable:'/Applications/Stetwise.app/Contents/MacOS/Stetwise',platform:'darwin',env:{STETWISE_DATA_DIR:'/Users/a/data',PORTABLE_EXECUTABLE_DIR:'C:\\old'}}),'/Users/a/data');
 checks.push('mac-storage-install-user-volume-translocation-nested-bundle');
 const keys=['GEMINI_CLI_HOME','GEMINI_API_KEY','HTTPS_PROXY'];
 const wire='Profile welcome\n\0__REDLINE_ENV_V1__\0PATH\0/opt/homebrew/bin:/usr/bin\0GEMINI_CLI_HOME\0/Users/test/Gemini home\0GEMINI_API_KEY\0test-only-secret\0HTTPS_PROXY\0http://127.0.0.1:9999\0UNLISTED_SECRET\0do-not-import\0__REDLINE_ENV_END__\0profile footer';
@@ -70,7 +70,7 @@ const fakeChild={
     launches.push({executable,args,env:options.env});
     const child=new EventEmitter(); child.pid=10000+launches.length;child.exitCode=null;child.stdout=new PassThrough();child.stderr=new PassThrough();
     setImmediate(()=>{const spec=commands.get(executable);let code=0,text='';
-      if(args.includes('--version')) text='1.2.3-simulated';else if(args.includes('--help'))text='Options: '+spec.help;else if(spec.id==='codex'&&args[0]==='login'){code=1;text='Not logged in';}else text='REDLINE_READY';
+      if(args.includes('--version')) text='1.2.3-simulated';else if(args.includes('--help'))text='Options: '+spec.help;else if(spec.id==='codex'&&args[0]==='login'){code=1;text='Not logged in';}else text='STETWISE_READY';
       child.stdout.end(text+'\n'); child.stderr.end();child.exitCode=code;child.emit('close',code);
     });return child;
   },
@@ -100,7 +100,7 @@ assert.ok(packageJson.scripts['desktop:pack'].includes('--config.electronDist=')
 checks.push('mac-universal-runtime-config-review');
 // Execute the real Electron entry point with inert services, then deliver file events.
 const appEvents=new EventEmitter();
-Object.assign(appEvents,{setName(){},setAppUserModelId(){},isPackaged:false,getPath:()=>home+'/Library/Application Support/Proofline',requestSingleInstanceLock:()=>true,whenReady:()=>new Promise(()=>{}),quit(){}});
+Object.assign(appEvents,{setName(){},setAppUserModelId(){},isPackaged:false,getPath:()=>home+'/Library/Application Support/Stetwise',requestSingleInstanceLock:()=>true,whenReady:()=>new Promise(()=>{}),quit(){}});
 const received=[],mainContext=vm.createContext({require:id=>id==='electron'?{app:appEvents,protocol:{registerSchemesAsPrivileged(){}}}:id==='node:path'?path.posix:id==='node:fs'?{existsSync:()=>true}:require(id.startsWith('./')?'../electron/'+id.slice(2):id),module:{exports:{}},process:{platform:'darwin',env:{},argv:['electron','.'],},console,URL,Response,Headers,setTimeout,clearTimeout,setInterval,clearInterval});
 vm.runInContext(await readFile(new URL('../electron/main.cjs',import.meta.url),'utf8'),mainContext,{filename:'electron/main.cjs'});
 let prevented=0;

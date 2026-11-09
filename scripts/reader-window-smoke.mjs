@@ -29,10 +29,10 @@ const measure = () => page.evaluate(() => {
 });
 try {
   await invoke('openText', [{ name: '中文窗口测试.md', path: 'window-test', content }]);
-  assert.equal(await page.locator('.brand-name').textContent(), 'PROOFLINE');
-  assert.equal(await page.evaluate(() => window.prooflineReader === window.mengxReader), true);
-  assert.equal(await app.evaluate(({ app }) => app.getName()), 'Proofline');
-  assert.equal(await page.title(), 'Proofline');
+  assert.equal(await page.locator('.brand-name').textContent(), 'STETWISE');
+  assert.equal(await page.evaluate(() => window.stetwiseReader === window.mengxReader), true);
+  assert.equal(await app.evaluate(({ app }) => app.getName()), 'Stetwise');
+  assert.equal(await page.title(), 'Stetwise');
   for (const [width, height] of [[1920, 1080], [1440, 900], [1366, 768], [1280, 720], [1024, 768], [860, 600], [720, 520]]) {
     await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), [width, height]);
     await page.waitForTimeout(150);

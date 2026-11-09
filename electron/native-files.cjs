@@ -177,14 +177,17 @@ class NativeFiles {
   async readSidecar(id) {
     const record = await this.get(id, 'file');
     if (this.dataStore) return this.dataStore.marks(record);
-    try { return await fs.readFile(`${record.path}.redline.json`, 'utf8'); }
-    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    for (const suffix of ['.stetwise.json', '.redline.json']) {
+      try { return await fs.readFile(`${record.path}${suffix}`, 'utf8'); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    return null;
   }
 
   async writeSidecar(id, text) {
     const record = await this.get(id, 'file');
     if (this.dataStore) return this.dataStore.saveMarks(record, text);
-    const target = `${record.path}.redline.json`;
+    const target = `${record.path}.stetwise.json`;
     if (text === null || text === undefined) { await fs.rm(target, { force: true }); return { ok: true, removed: true }; }
     if (typeof text !== 'string' || text.length > 32 * 1024 * 1024) throw new TypeError('Invalid sidecar');
     JSON.parse(text);
@@ -217,14 +220,14 @@ class NativeFiles {
     await fs.mkdir(dir, { recursive: true });
     // An anchored copy is used only if, without its anchors, it is exactly the file on disk.
     const original = (await fs.readFile(record.path, 'utf8')).replace(/^\uFEFF/, '');
-    const anchored = typeof copyText === 'string' && copyText.replace(/\[\[\/?PL-\d+\]\]/g, '') === original;
+    const anchored = typeof copyText === 'string' && copyText.replace(/\[\[\/?(?:SW|PL)-\d+\]\]/g, '') === original;
     if (anchored) await fs.writeFile(path.join(dir, record.name), copyText, 'utf8');
     else await fs.copyFile(record.path, path.join(dir, record.name));
     await fs.writeFile(path.join(dir, 'TASK.md'), task, 'utf8');
     await fs.writeFile(path.join(dir, 'annotations.json'), marks, 'utf8');
     const assets = record.path + '.assets';
     try { await fs.cp(assets, path.join(dir, record.name + '.assets'), { recursive: true, dereference: false }); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    await fs.writeFile(path.join(dir, 'README.txt'), 'Proofline portable task\n1. Copy this entire folder to the other device.\n2. Install and log in to an AI CLI on that device, or open the document and TASK.md in your desktop AI.\n3. Ask it to follow TASK.md and edit the document.\n4. In Proofline, choose Other AI / device, then import the revised Markdown for review.\nCredentials and CLI executable paths are never transferred.\n', 'utf8');
+    await fs.writeFile(path.join(dir, 'README.txt'), 'Stetwise portable task\n1. Copy this entire folder to the other device.\n2. Install and log in to an AI CLI on that device, or open the document and TASK.md in your desktop AI.\n3. Ask it to follow TASK.md and edit the document.\n4. In Stetwise, choose Other AI / device, then import the revised Markdown for review.\nCredentials and CLI executable paths are never transferred.\n', 'utf8');
     return { ok: true, path: dir, anchored };
   }
 

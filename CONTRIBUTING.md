@@ -1,4 +1,4 @@
-# Contributing to Proofline / 参与共建
+# Contributing to Stetwise / 参与共建
 
 [中文在下方](#中文)
 
@@ -8,7 +8,7 @@ CLIs we have not verified with real accounts yet).
 
 ## Ground rules
 
-- **License.** Proofline is Apache-2.0. By submitting a contribution you agree
+- **License.** Stetwise is Apache-2.0. By submitting a contribution you agree
   it is licensed under Apache-2.0 (section 5 of the license).
 - **Sign off your commits (DCO).** Add a `Signed-off-by` line to every commit
   to certify the [Developer Certificate of Origin](https://developercertificate.org/):
@@ -34,7 +34,7 @@ CLIs we have not verified with real accounts yet).
 ```sh
 npm ci
 npm run desktop:dev                      # desktop app with hot reload
-npm run build && npm run test:redline    # browser end-to-end
+npm run build && npm run test:review    # browser end-to-end
 ```
 
 Node 22 or later.
@@ -47,26 +47,26 @@ npm run test:markdown; npm run test:math; npm run test:model
 npm run test:integration   # storage, images, task folders, CLI errors
 npm run test:adapters      # 12 simulated CLIs, timeouts and cancellation
 npm run test:probe         # connection test results
-npm run test:redline-desktop          # Electron app with a fresh profile
+npm run test:review-desktop          # Electron app with a fresh profile
 npm run test:local-cli -- --edit-others   # real CLIs on this machine (calls models)
 npm run test:mac-contracts # macOS code paths on any host
 npm run test:mac-host      # only on a real Mac; does not call a model
 ```
 
 Windows installer check (on a Windows PC, after `npm run desktop:pack`):
-close Proofline and run `verify-install.bat`. It installs, upgrades,
-uninstalls and reinstalls, and checks that ProoflineData survives.
+close Stetwise and run `verify-install.bat`. It installs, upgrades,
+uninstalls and reinstalls, and checks that StetwiseData survives.
 
 ## Where things are
 
 | Path | What |
 | --- | --- |
 | `src/main.jsx` | The app: reading, marks, sending, review, editing |
-| `src/redline/` | Marks store, rail, popover, send / review / settings dialogs, rich editor |
-| `electron/redline-core.mjs` | Pure review engine: block split, task prompt, reply parsing, diffs |
+| `src/review/` | Marks store, rail, popover, send / review / settings dialogs, rich editor |
+| `electron/review-core.mjs` | Pure review engine: block split, task prompt, reply parsing, diffs |
 | `electron/agents.cjs` | CLI adapters, detection, runs, logs, error classification |
 | `electron/platform.cjs` | macOS login shell, search paths, Terminal, process groups |
-| `electron/data-store.cjs` | ProoflineData JSON storage |
+| `electron/data-store.cjs` | StetwiseData JSON storage |
 | `build/installer.nsh` | Windows installer: options page, file types, data-keeping uninstall |
 
 In the code, "redline" is the internal word for an **instruction mark** (fix,
@@ -84,7 +84,7 @@ request.
 ## Style
 
 Keep changes focused and match the surrounding code. User-facing text is
-bilingual; most of it is in `src/redline/copy.js` and `src/lib/i18n.js`.
+bilingual; most of it is in `src/review/copy.js` and `src/lib/i18n.js`.
 
 ---
 

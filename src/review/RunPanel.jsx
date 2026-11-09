@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Square, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { t } from './copy';
 
-export default function RunPanel({ language, run, onStop, onDismiss, onRetry, onReview, onSettings, onDiagnose }) {
+export default function RunPanel({ language, run, onStop, onDismiss, onRetry, onReview, onSettings, onDiagnose, onPreview, onLogin }) {
   const [open, setOpen] = useState(run.status === 'failed');
   const active = ['starting', 'running'].includes(run.status), zh = language === 'zh';
   const [now, setNow] = useState(Date.now());
@@ -22,9 +22,14 @@ export default function RunPanel({ language, run, onStop, onDismiss, onRetry, on
         : <button className="icon-button quiet" onClick={onDismiss} aria-label={t(language, 'close')}><X size={15} /></button>}
     </div>
     {active && <p className="run-activity">{run.status === 'starting' ? (zh ? '正在检查登录与启动环境…' : 'Checking sign-in and environment…') : run.phase === 'waiting' ? (zh ? '进程仍在运行，超过 60 秒没有新输出；可继续等待或停止。' : 'Process alive; no output for over 60 seconds. Wait or stop.') : (zh ? '进程运行中 · 每 3 秒检查状态' : 'Process running · checked every 3 seconds')}{run.pid ? ' · PID ' + run.pid : ''}</p>}
+    {active && run.progress && <div className="run-progress" aria-label={zh ? '每条指令的进度' : 'Progress per instruction'}>
+      {run.progress.items.length ? run.progress.items.map((item) => <span key={item.n} className={`chip ${item.status}`} title={item.status === 'done' ? (zh ? '已改' : 'Changed') : item.status === 'missing' ? (zh ? '定位锚点被删' : 'Anchor removed') : (zh ? '还没改' : 'Not yet')}>#{item.n} {item.status === 'done' ? '✓' : item.status === 'missing' ? '!' : '…'}</span>)
+        : <span>{zh ? `已改动 ${run.progress.changed} 处` : `${run.progress.changed} change${run.progress.changed === 1 ? '' : 's'} so far`}</span>}
+      {run.progress.changed > 0 && <button onClick={onPreview}>{zh ? '预览当前结果' : 'Preview progress'}</button>}
+    </div>}
     {run.diagnostic && <p role="alert" className="run-diagnostic">{run.diagnostic.message}</p>}
     {run.storageError && <p role="alert" className="settings-error">{run.storageError}</p>}
-    {!active && <div className="run-actions"><button onClick={onRetry}>{t(language, 'resend')}</button>{typeof run.proposed === 'string' && <button onClick={onReview}>{zh ? '审阅已有结果' : 'Review available result'}</button>}<button onClick={onSettings}>{zh ? '检查连接与设置' : 'Connection settings'}</button><button onClick={onDiagnose}>{zh ? '生成 CLI 诊断任务' : 'Create CLI diagnosis task'}</button></div>}
+    {!active && <div className="run-actions">{run.diagnostic?.code === 'login-required' && onLogin && <button className="primary-button" onClick={onLogin}>{zh ? '打开终端登录' : 'Open sign-in terminal'}</button>}<button onClick={onRetry}>{t(language, 'resend')}</button>{typeof run.proposed === 'string' && run.hasChanges !== false && <button onClick={onReview}>{zh ? '审阅已有结果' : 'Review available result'}</button>}<button onClick={onSettings}>{zh ? '检查连接与设置' : 'Connection settings'}</button><button onClick={onDiagnose}>{zh ? '生成 CLI 诊断任务' : 'Create CLI diagnosis task'}</button></div>}
     {open && <pre ref={log} className="run-log">{run.output || t(language, 'noOutput')}{run.code !== undefined && run.code !== null ? `\n${t(language, 'exitCode', run.code)}` : ''}</pre>}
   </div>;
 }

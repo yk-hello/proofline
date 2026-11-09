@@ -18,7 +18,7 @@ try {
   for (let attempt = 0; ; attempt++) {
     try { await page.goto(`http://127.0.0.1:${port}/`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); }
   }
-  await page.waitForFunction(() => window.prooflineReader?.getState().document.ready);
+  await page.waitForFunction(() => window.stetwiseReader?.getState().document.ready);
 
   // 1. Reading preferences change the text.
   const style = () => page.evaluate(() => {
@@ -45,8 +45,8 @@ try {
   // 3. Rich editor: the heading menu shows every option.
   const long = ['# 产品需求文档', ''];
   for (let i = 1; i <= 60; i++) long.push(`## 第 ${i} 节`, '', `本节说明第 ${i} 项内容${i % 9 === 0 ? '，重点关注目标用户的留存' : ''}，以及 **加粗的说明** 和普通文字。`, '');
-  await page.evaluate(async (text) => { await window.prooflineReader.openFile({ file: new File([text], 'prd.md', { type: 'text/markdown' }) }); }, long.join('\n'));
-  await page.waitForFunction(() => window.prooflineReader.getState().document.name === 'prd.md' && window.prooflineReader.getState().document.ready);
+  await page.evaluate(async (text) => { await window.stetwiseReader.openFile({ file: new File([text], 'prd.md', { type: 'text/markdown' }) }); }, long.join('\n'));
+  await page.waitForFunction(() => window.stetwiseReader.getState().document.name === 'prd.md' && window.stetwiseReader.getState().document.ready);
   await page.locator('.mode-switch button', { hasText: '编辑' }).click();
   await page.waitForSelector('.markdown-editor .ProseMirror h2');
   await page.locator('.markdown-editor .ProseMirror p').nth(2).click();

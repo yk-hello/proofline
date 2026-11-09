@@ -23,8 +23,8 @@ self.onmessage = async ({ data }) => {
     const response = await fetch(data.fontUrl);
     if (!response.ok) throw new Error('Unable to load the bundled PDF font');
     const font = new Uint8Array(await response.arrayBuffer()), output = [];
-    const doc = new PDFDocument({ size: 'A4', margin: MARGIN, font, fontLayoutCache: data.source.length < 1000000,
-      bufferPages: false, compress: true, info: { Title: data.title, Creator: 'Proofline' } });
+    const doc = new PDFDocument({ size: data.paper === 'Letter' ? 'LETTER' : 'A4', margin: MARGIN, font, fontLayoutCache: data.source.length < 1000000,
+      bufferPages: false, compress: true, info: { Title: data.title, Creator: 'Stetwise' } });
     doc.registerFont('Reader', font); doc.font('Reader');
     doc.on('data', (part) => output.push(new Uint8Array(part)));
     const completed = new Promise((resolve, reject) => { doc.on('end', resolve); doc.on('error', reject); });
@@ -34,7 +34,16 @@ self.onmessage = async ({ data }) => {
       stats.fallbacks++;
       if (stats.fallbackReasons.length < 20) stats.fallbackReasons.push({ kind, message: error?.message || String(error) });
     }
-    doc.on('pageAdded', () => { pages += 1; });
+    // Page numbers at the foot of every page, drawn as each page starts.
+    const footer = () => {
+      if (!data.pageNumbers) return;
+      const { x, y } = doc, bottom = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
+      doc.font('Reader').fontSize(8.5).fillColor('#80868b').text(String(pages), 0, doc.page.height - MARGIN * 0.6, { width: doc.page.width, align: 'center', lineBreak: false });
+      doc.page.margins.bottom = bottom; doc.fillColor('#202124'); doc.x = x; doc.y = y;
+    };
+    doc.on('pageAdded', () => { pages += 1; footer(); });
+    footer();
     const width = doc.page.width - MARGIN * 2, pageBottom = () => doc.page.height - MARGIN;
     const assets = new Map(data.assets || []), imageCache = new Map();
     const normalize = (value) => { try { value = decodeURIComponent(value); } catch {} return value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^(?:\.\.\/)+/, '').toLowerCase(); };

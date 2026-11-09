@@ -8,7 +8,7 @@ import { invokePage } from './page-command.mjs';
 export async function launchDesktop({ output, userData, visible = false, executablePath } = {}) {
   const args = ['--automation', '--user-data', userData, '--export-directory', output];
   if (!visible) args.push('--hidden');
-  const environment = { ...process.env, MENGX_DEV_URL: '' };
+  const environment = { ...process.env, STETWISE_DEV_URL: '' };
   delete environment.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [...(executablePath ? [] : ['.']), ...args],
     ...(executablePath ? { executablePath } : {}), cwd: process.cwd(),

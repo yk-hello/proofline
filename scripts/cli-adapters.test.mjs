@@ -8,7 +8,7 @@ const { CLI_ADAPTERS, AgentRunner, detect, runCommand, validateArgs, connectionA
 const { DataStore } = require('../electron/data-store.cjs');
 const root = path.resolve('test-fixtures/results/cli-matrix-' + Date.now());
 await mkdir(root, { recursive: true });
-const store = new DataStore(path.join(root, 'ProoflineData')); await store.init();
+const store = new DataStore(path.join(root, 'StetwiseData')); await store.init();
 // Independent fixture option spellings, including deliberate prefix traps.
 const contracts = {
   'claude-code': '-p --permission-mode --allowedTools',
@@ -29,8 +29,8 @@ function simulated() {
   if (id === 'codex' && args[0] === 'login') { console.log('Logged in (simulation)'); process.exit(0); }
   const flags = new Set((contracts[id] || '').split(' '));
   for (const arg of args) if (/^--?[A-Za-z]/.test(arg) && !flags.has(arg)) { console.error('Unknown option ' + arg); process.exit(2); }
-  if (args.some(arg => arg.startsWith('Reply with exactly REDLINE_READY.'))) {
-    console.log(id === 'gemini' ? JSON.stringify({type:'message', role:'assistant', content:'REDLINE_READY'}) : 'REDLINE_READY'); process.exit(0);
+  if (args.some(arg => arg.startsWith('Reply with exactly STETWISE_READY.'))) {
+    console.log(id === 'gemini' ? JSON.stringify({type:'message', role:'assistant', content:'STETWISE_READY'}) : 'STETWISE_READY'); process.exit(0);
   }
   const prompt = args.find(arg => arg.startsWith('Read the file '));
   const taskIndex = args.indexOf('--message-file');
@@ -57,8 +57,8 @@ assert.equal(validateArgs(['--yes'], '--yes-always').ok, false);
 assert.equal(validateArgs(['-p'], '--prompt').ok, false);
 assert.equal(validateArgs(['--sandbox=workspace-write'], '--sandbox <MODE>').ok, true);
 assert.equal(validateArgs(['--json'], '').ok, false);
-assert.equal(responseReady(JSON.stringify({type:'message', role:'user', content:'REDLINE_READY'})), false);
-assert.equal(responseReady('Error: expected REDLINE_READY, got nothing'), false);
+assert.equal(responseReady(JSON.stringify({type:'message', role:'user', content:'STETWISE_READY'})), false);
+assert.equal(responseReady('Error: expected STETWISE_READY, got nothing'), false);
 assert.equal(redactOutput('sample-secret', { TEST_API_KEY: 'sample-secret' }), '[redacted]');
 const items = await detect(overrides, { refresh: true });
 const matrix = [];

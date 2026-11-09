@@ -144,7 +144,28 @@ function closestEditRegion(node) {
   return element?.closest?.('[data-edit-region]') || null;
 }
 
+/** Drop leading and trailing whitespace (a triple-click selects the paragraph break too). */
+export function trimAnchor(source, anchor) {
+  if (!anchor?.rawQuote || anchor.document) return anchor;
+  const lead = anchor.rawQuote.length - anchor.rawQuote.trimStart().length;
+  const tail = anchor.rawQuote.length - anchor.rawQuote.trimEnd().length;
+  if ((!lead && !tail) || lead + tail >= anchor.rawQuote.length) return anchor;
+  const at = anchor.sourceOffset + lead, to = anchor.sourceEnd - tail;
+  const text = String(anchor.text || ''), trimmed = text.trim();
+  if (!trimmed) return anchor;
+  const textLead = text.slice(0, text.length - text.trimStart().length), textTail = text.slice(text.trimEnd().length);
+  return { ...anchor, text: trimmed, sourceOffset: at, sourceEnd: to, rawQuote: source.slice(at, to),
+    prefix: source.slice(Math.max(0, at - 48), at), suffix: source.slice(to, to + 48),
+    ...(anchor.displayPrefix !== undefined ? { displayPrefix: (anchor.displayPrefix + textLead).slice(-48) } : {}),
+    ...(anchor.displaySuffix !== undefined ? { displaySuffix: (textTail + anchor.displaySuffix).slice(0, 48) } : {}) };
+}
+
 export function captureReadingSelection(root, source, chunks = []) {
+  const captured = captureSelectionRange(root, source, chunks);
+  return captured ? { ...captured, anchor: trimAnchor(source, captured.anchor) } : null;
+}
+
+function captureSelectionRange(root, source, chunks = []) {
   const selection = window.getSelection();
   if (!selection?.rangeCount || selection.isCollapsed || !root) return null;
   let range = selection.getRangeAt(0);

@@ -124,7 +124,7 @@ export function documentStats(source, marks = [], wordCount = 0) {
     minutes: Math.max(1, Math.round(cjk / 400 + latinWords / 220)),
     headings: (withoutCode.match(/^\s{0,3}#{1,6}\s+\S/gm) || []).length,
     paragraphs: withoutCode.split(/\n\s*\n/).filter((block) => block.trim() && !/^\s{0,3}(?:#|\||>|[-*+]\s|\d+[.)]\s|<!--)/.test(block.trim())).length,
-    tables, charts: (text.match(/<!--\s*proofline:chart\b/gi) || []).length + fences.filter((match) => match[2] === 'mermaid').length,
+    tables, charts: (text.match(/<!--\s*(?:stetwise|proofline):chart\b/gi) || []).length + fences.filter((match) => match[2] === 'mermaid').length,
     images: (withoutCode.match(/!\[[^\]]*\]\([^)]*\)/g) || []).length, links: (withoutCode.match(/(?<!!)\[[^\]]+\]\([^)]*\)/g) || []).length,
     codeBlocks: fences.filter((match) => match[2] !== 'mermaid').length, formulas: (withoutCode.match(/\$\$[\s\S]+?\$\$|(?<![\\$])\$[^$\n]+\$/g) || []).length,
     marks: types, statuses: status,

@@ -21,12 +21,12 @@ async function main(){
   report.checks.push('native-applescript-compilation-without-opening-terminal');
   const inherited=await readLoginEnvironment({shell:process.env.SHELL||'/bin/zsh',keys:['HTTPS_PROXY','GEMINI_CLI_HOME']});
   assert.ok(inherited.PATH);report.checks.push('native-login-shell-marked-path');
-  const cli=path.join(output,'local cli');await writeFile(cli,'#!/bin/sh\nprintf "REDLINE_READY\\n"\n');await chmod(cli,0o644);
+  const cli=path.join(output,'local cli');await writeFile(cli,'#!/bin/sh\nprintf "STETWISE_READY\\n"\n');await chmod(cli,0o644);
   assert.equal(await which(cli),null);await chmod(cli,0o755);assert.equal(await which(cli),cli);
-  const response=await runCommand(cli,[],{cwd:output});assert.equal(response.ok,true);assert.match(response.stdout,/REDLINE_READY/);
+  const response=await runCommand(cli,[],{cwd:output});assert.equal(response.ok,true);assert.match(response.stdout,/STETWISE_READY/);
   report.checks.push('native-executable-permission-and-posix-script');
   const readonly=path.join(output,'readonly');await mkdir(readonly);await chmod(readonly,0o555);
-  try{if(process.getuid?.()===0)report.skipped.push('readonly-directory: root user bypasses permissions');else{assert.equal((await new DataStore(path.join(readonly,'ProoflineData')).init()).writable,false);report.checks.push('native-readonly-storage-detection');}}
+  try{if(process.getuid?.()===0)report.skipped.push('readonly-directory: root user bypasses permissions');else{assert.equal((await new DataStore(path.join(readonly,'StetwiseData')).init()).writable,false);report.checks.push('native-readonly-storage-detection');}}
   finally{await chmod(readonly,0o755);}
   const stubborn=path.join(output,'stubborn.cjs');await writeFile(stubborn,'process.on("SIGTERM",()=>{});console.log("STARTED");setInterval(()=>{},1000);');
   const stopped=await runCommand(process.execPath,[stubborn],{cwd:output,timeout:1000});
@@ -40,8 +40,8 @@ async function main(){
     const source=path.join(output,'Finder 中文 test.md');await writeFile(source,'# Finder event test\n\nOriginal text.\n');
     // Tests the actual open-file handler. An OS-generated Finder event still needs manual QA.
     await app.evaluate(({app},filename)=>app.emit('open-file',{preventDefault(){}},filename),source);
-    await page.waitForFunction(()=>window.prooflineReader.getState().document.name==='Finder 中文 test.md');
-    assert.match((await page.evaluate(()=>window.prooflineReader.getContent())).content,/Original text/);
+    await page.waitForFunction(()=>window.stetwiseReader.getState().document.name==='Finder 中文 test.md');
+    assert.match((await page.evaluate(()=>window.stetwiseReader.getContent())).content,/Original text/);
     await page.keyboard.press('Meta+f');await page.locator('.search-strip input').waitFor();await page.keyboard.press('Escape');
     await page.screenshot({path:path.join(output,'native-mac.png')});report.checks.push('native-open-file-handler-injected-event','native-command-f');
     assert.match(await readFile(source,'utf8'),/Original text/);

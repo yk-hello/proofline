@@ -41,9 +41,9 @@ export function documentCacheKey(name, path = '') {
 }
 
 export function safeMarkdown(markdown, query = '', resolveAsset, activeSearchIndex = 0, searchIndexOffset = 0, headingOffset = 0, searchOptions = DEFAULT_SEARCH_OPTIONS, searchContext = null) {
-  // A chart is a table preceded by <!-- proofline:chart ... -->; wrap both so the
+  // A chart is a table preceded by <!-- stetwise:chart ... -->; wrap both so the
   // reader can draw it (see charts.js). DOMPurify keeps data-* attributes.
-  const raw = marked.parse(markdown).replace(/<!--\s*proofline:chart\b([^>]*?)-->\s*(<table[\s\S]*?<\/table>)/gi,
+  const raw = marked.parse(markdown).replace(/<!--\s*(?:stetwise|proofline):chart\b([^>]*?)-->\s*(<table[\s\S]*?<\/table>)/gi,
     (_all, spec, table) => `<div class="pl-chart-block" data-chart-spec="${spec.trim().replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}">${table}</div>`);
   // KaTeX draws roots, large delimiters and arrows with SVG; keep SVG and MathML.
   const sanitized = DOMPurify.sanitize(raw, {

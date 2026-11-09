@@ -43,4 +43,4 @@ export async function chooseDesktopFile(currentHandle) { return desktopHandle(aw
 export async function chooseDesktopDirectory() { return desktopHandle(await bridge.chooseDirectory()); }
 export async function restoreDesktopFile(key) { return desktopHandle(await bridge.restore(key)); }
 export async function openDesktopPath(filename) { return desktopHandle(await bridge.openGrantedPath(filename)); }
-export async function saveDesktopExport(name, blob) { return bridge.saveExport(name, await blob.arrayBuffer()); }
+export async function saveDesktopExport(name, blob, options = {}) { return bridge.saveExport(name, await blob.arrayBuffer(), options); }

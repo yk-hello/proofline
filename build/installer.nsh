@@ -4,65 +4,80 @@
 !include FileFunc.nsh
 
 !ifndef BUILD_UNINSTALLER
-Var ProoflineAssociate
-Var ProoflineDesktop
-Var ProoflineTaskbar
-Var ProoflineAssociateControl
-Var ProoflineDesktopControl
-Var ProoflineTaskbarControl
+Var StetwiseAssociate
+Var StetwiseDesktop
+Var StetwiseTaskbar
+Var StetwiseAssociateControl
+Var StetwiseDesktopControl
+Var StetwiseTaskbarControl
 !endif
 
 !macro customWelcomePage
-  !define MUI_WELCOMEPAGE_TITLE "安装 Proofline"
+  !define MUI_WELCOMEPAGE_TITLE "安装 Stetwise"
   !define MUI_WELCOMEPAGE_TEXT "读、批、改：审阅 AI 生成的文档。$\r$\n$\r$\n升级安装会保留阅读记录、标注和恢复草稿。"
   !insertmacro MUI_PAGE_WELCOME
 !macroend
 
 !macro customInit
   ; Everything is on by default; a reinstall keeps the choices made last time.
-  StrCpy $ProoflineAssociate ${BST_CHECKED}
-  StrCpy $ProoflineDesktop ${BST_CHECKED}
-  StrCpy $ProoflineTaskbar ${BST_CHECKED}
+  StrCpy $StetwiseAssociate ${BST_CHECKED}
+  StrCpy $StetwiseDesktop ${BST_CHECKED}
+  StrCpy $StetwiseTaskbar ${BST_CHECKED}
   ClearErrors
   ReadRegDWORD $R3 HKCU "Software\Proofline\Installer" Associate
   ${IfNot} ${Errors}
-    StrCpy $ProoflineAssociate $R3
+    StrCpy $StetwiseAssociate $R3
+  ${EndIf}
+  ClearErrors
+  ReadRegDWORD $R3 HKCU "Software\Stetwise\Installer" Associate
+  ${IfNot} ${Errors}
+    StrCpy $StetwiseAssociate $R3
   ${EndIf}
   ClearErrors
   ReadRegDWORD $R3 HKCU "Software\Proofline\Installer" Desktop
   ${IfNot} ${Errors}
-    StrCpy $ProoflineDesktop $R3
+    StrCpy $StetwiseDesktop $R3
+  ${EndIf}
+  ClearErrors
+  ReadRegDWORD $R3 HKCU "Software\Stetwise\Installer" Desktop
+  ${IfNot} ${Errors}
+    StrCpy $StetwiseDesktop $R3
   ${EndIf}
   ClearErrors
   ReadRegDWORD $R3 HKCU "Software\Proofline\Installer" Taskbar
   ${IfNot} ${Errors}
-    StrCpy $ProoflineTaskbar $R3
+    StrCpy $StetwiseTaskbar $R3
+  ${EndIf}
+  ClearErrors
+  ReadRegDWORD $R3 HKCU "Software\Stetwise\Installer" Taskbar
+  ${IfNot} ${Errors}
+    StrCpy $StetwiseTaskbar $R3
   ${EndIf}
   ClearErrors
   ${GetParameters} $R0
   ${GetOptions} $R0 "/ASSOCIATE=" $R1
   ${IfNot} ${Errors}
-    StrCpy $ProoflineAssociate $R1
+    StrCpy $StetwiseAssociate $R1
   ${EndIf}
   ClearErrors
   ${GetOptions} $R0 "/DESKTOP=" $R1
   ${IfNot} ${Errors}
-    StrCpy $ProoflineDesktop $R1
+    StrCpy $StetwiseDesktop $R1
   ${EndIf}
   ClearErrors
   ${GetOptions} $R0 "/TASKBAR=" $R1
   ${IfNot} ${Errors}
-    StrCpy $ProoflineTaskbar $R1
+    StrCpy $StetwiseTaskbar $R1
   ${EndIf}
   ClearErrors
 !macroend
 
 !macro customPageAfterChangeDir
-  Page custom ProoflineOptionsPageCreate ProoflineOptionsPageLeave
+  Page custom StetwiseOptionsPageCreate StetwiseOptionsPageLeave
 !macroend
 
 !ifndef BUILD_UNINSTALLER
-Function ProoflineOptionsPageCreate
+Function StetwiseOptionsPageCreate
   !insertmacro MUI_HEADER_TEXT "Windows 集成" "默认打开方式和快捷方式"
   nsDialogs::Create 1018
   Pop $0
@@ -75,52 +90,52 @@ Function ProoflineOptionsPageCreate
   Pop $0
   SendMessage $0 ${WM_SETFONT} $1 0
   ${NSD_CreateCheckbox} 0 22u 100% 12u "设为 .md / .markdown / .txt 文件的默认应用"
-  Pop $ProoflineAssociateControl
-  SendMessage $ProoflineAssociateControl ${WM_SETFONT} $1 0
-  ${NSD_SetState} $ProoflineAssociateControl $ProoflineAssociate
+  Pop $StetwiseAssociateControl
+  SendMessage $StetwiseAssociateControl ${WM_SETFONT} $1 0
+  ${NSD_SetState} $StetwiseAssociateControl $StetwiseAssociate
   ${NSD_CreateLabel} 12u 35u 95% 18u "HTML 和 Word 文档会加入右键“打开方式”。如系统要求确认，安装完成后会打开默认应用设置。"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $2 0
   ${NSD_CreateCheckbox} 0 60u 100% 12u "创建桌面快捷方式"
-  Pop $ProoflineDesktopControl
-  SendMessage $ProoflineDesktopControl ${WM_SETFONT} $1 0
-  ${NSD_SetState} $ProoflineDesktopControl $ProoflineDesktop
+  Pop $StetwiseDesktopControl
+  SendMessage $StetwiseDesktopControl ${WM_SETFONT} $1 0
+  ${NSD_SetState} $StetwiseDesktopControl $StetwiseDesktop
   ${NSD_CreateCheckbox} 0 78u 100% 12u "固定到任务栏"
-  Pop $ProoflineTaskbarControl
-  SendMessage $ProoflineTaskbarControl ${WM_SETFONT} $1 0
-  ${NSD_SetState} $ProoflineTaskbarControl $ProoflineTaskbar
-  ${NSD_CreateLabel} 12u 91u 95% 18u "Windows 11 不允许安装程序直接固定。首次启动 Proofline 时会提示你一键完成。"
+  Pop $StetwiseTaskbarControl
+  SendMessage $StetwiseTaskbarControl ${WM_SETFONT} $1 0
+  ${NSD_SetState} $StetwiseTaskbarControl $StetwiseTaskbar
+  ${NSD_CreateLabel} 12u 91u 95% 18u "Windows 11 不允许安装程序直接固定。首次启动 Stetwise 时会提示你一键完成。"
   Pop $0
   SendMessage $0 ${WM_SETFONT} $2 0
   nsDialogs::Show
 FunctionEnd
 
-Function ProoflineOptionsPageLeave
-  ${NSD_GetState} $ProoflineAssociateControl $ProoflineAssociate
-  ${NSD_GetState} $ProoflineDesktopControl $ProoflineDesktop
-  ${NSD_GetState} $ProoflineTaskbarControl $ProoflineTaskbar
+Function StetwiseOptionsPageLeave
+  ${NSD_GetState} $StetwiseAssociateControl $StetwiseAssociate
+  ${NSD_GetState} $StetwiseDesktopControl $StetwiseDesktop
+  ${NSD_GetState} $StetwiseTaskbarControl $StetwiseTaskbar
 FunctionEnd
 !endif
 
-!macro ProoflineRegisterExtension EXT PROGID
+!macro StetwiseRegisterExtension EXT PROGID
   WriteRegNone HKCU "Software\Classes\.${EXT}\OpenWithProgids" "${PROGID}"
-  WriteRegStr HKCU "Software\Proofline\Capabilities\FileAssociations" ".${EXT}" "${PROGID}"
-  ${If} $ProoflineAssociate == ${BST_CHECKED}
+  WriteRegStr HKCU "Software\Stetwise\Capabilities\FileAssociations" ".${EXT}" "${PROGID}"
+  ${If} $StetwiseAssociate == ${BST_CHECKED}
     ReadRegStr $R1 HKCU "Software\Classes\.${EXT}" ""
     ${If} $R1 != "${PROGID}"
-      WriteRegStr HKCU "Software\Proofline\Installer\PreviousAssociations" "${EXT}" "$R1"
+      WriteRegStr HKCU "Software\Stetwise\Installer\PreviousAssociations" "${EXT}" "$R1"
     ${EndIf}
     WriteRegStr HKCU "Software\Classes\.${EXT}" "" "${PROGID}"
   ${EndIf}
 !macroend
 
-; Formats Proofline opens as converted copies are offered in "Open with" only.
-!macro ProoflineRegisterOpenWith EXT
-  WriteRegNone HKCU "Software\Classes\.${EXT}\OpenWithProgids" "Proofline.Document"
-  WriteRegStr HKCU "Software\Proofline\Capabilities\FileAssociations" ".${EXT}" "Proofline.Document"
+; Formats Stetwise opens as converted copies are offered in "Open with" only.
+!macro StetwiseRegisterOpenWith EXT
+  WriteRegNone HKCU "Software\Classes\.${EXT}\OpenWithProgids" "Stetwise.Document"
+  WriteRegStr HKCU "Software\Stetwise\Capabilities\FileAssociations" ".${EXT}" "Stetwise.Document"
 !macroend
 
-!macro ProoflineRetireExtension EXT PROGID
+!macro StetwiseRetireExtension EXT PROGID
   DeleteRegValue HKCU "Software\Classes\.${EXT}\OpenWithProgids" "${PROGID}"
   ReadRegStr $R1 HKCU "Software\Classes\.${EXT}" ""
   ${If} $R1 == "${PROGID}"
@@ -147,12 +162,33 @@ FunctionEnd
   Delete "$DESKTOP\MENG X.lnk"
   Delete "$SMPROGRAMS\MENG X.lnk"
   Delete "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\MENG X.lnk"
-  ; Proofline was called Redline before 0.4.0: retire its file types and shortcuts.
-  !insertmacro ProoflineRetireExtension md Redline.Markdown
-  !insertmacro ProoflineRetireExtension markdown Redline.Markdown
-  !insertmacro ProoflineRetireExtension mdown Redline.Markdown
-  !insertmacro ProoflineRetireExtension mkd Redline.Markdown
-  !insertmacro ProoflineRetireExtension txt Redline.Text
+  ; Stetwise was called Proofline before the rename: retire its file types, shortcuts and registry keys.
+  ; The program itself is the same installation (same id), so an upgrade replaces it in place.
+  !insertmacro StetwiseRetireExtension md Proofline.Markdown
+  !insertmacro StetwiseRetireExtension markdown Proofline.Markdown
+  !insertmacro StetwiseRetireExtension mdown Proofline.Markdown
+  !insertmacro StetwiseRetireExtension mkd Proofline.Markdown
+  !insertmacro StetwiseRetireExtension txt Proofline.Text
+  DeleteRegValue HKCU "Software\Classes\.html\OpenWithProgids" "Proofline.Document"
+  DeleteRegValue HKCU "Software\Classes\.htm\OpenWithProgids" "Proofline.Document"
+  DeleteRegValue HKCU "Software\Classes\.docx\OpenWithProgids" "Proofline.Document"
+  DeleteRegKey HKCU "Software\Classes\Proofline.Markdown"
+  DeleteRegKey HKCU "Software\Classes\Proofline.Text"
+  DeleteRegKey HKCU "Software\Classes\Proofline.Document"
+  DeleteRegKey HKCU "Software\Classes\Applications\Proofline.exe"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "Proofline"
+  DeleteRegKey HKCU "Software\Proofline"
+  Delete "$DESKTOP\Proofline.lnk"
+  Delete "$SMPROGRAMS\Proofline.lnk"
+  Delete "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Proofline.lnk"
+  Delete "$INSTDIR\Proofline.exe"
+  Delete "$INSTDIR\Uninstall Proofline.exe"
+  ; Stetwise was called Redline before 0.4.0: retire its file types and shortcuts.
+  !insertmacro StetwiseRetireExtension md Redline.Markdown
+  !insertmacro StetwiseRetireExtension markdown Redline.Markdown
+  !insertmacro StetwiseRetireExtension mdown Redline.Markdown
+  !insertmacro StetwiseRetireExtension mkd Redline.Markdown
+  !insertmacro StetwiseRetireExtension txt Redline.Text
   DeleteRegValue HKCU "Software\Classes\.html\OpenWithProgids" "Redline.Document"
   DeleteRegValue HKCU "Software\Classes\.htm\OpenWithProgids" "Redline.Document"
   DeleteRegValue HKCU "Software\Classes\.docx\OpenWithProgids" "Redline.Document"
@@ -165,46 +201,46 @@ FunctionEnd
   Delete "$DESKTOP\Redline.lnk"
   Delete "$SMPROGRAMS\Redline.lnk"
   Delete "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Redline.lnk"
-  WriteRegStr HKCU "Software\Classes\Proofline.Markdown" "" "Markdown 文档"
-  WriteRegStr HKCU "Software\Classes\Proofline.Markdown\DefaultIcon" "" '$\"$appExe$\",0'
-  WriteRegStr HKCU "Software\Classes\Proofline.Markdown\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
-  WriteRegStr HKCU "Software\Classes\Proofline.Text" "" "文本文档"
-  WriteRegStr HKCU "Software\Classes\Proofline.Text\DefaultIcon" "" '$\"$appExe$\",0'
-  WriteRegStr HKCU "Software\Classes\Proofline.Text\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
-  WriteRegStr HKCU "Software\Classes\Proofline.Document" "" "Proofline 文档"
-  WriteRegStr HKCU "Software\Classes\Proofline.Document\DefaultIcon" "" '$\"$appExe$\",0'
-  WriteRegStr HKCU "Software\Classes\Proofline.Document\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
-  WriteRegStr HKCU "Software\Classes\Applications\Proofline.exe\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
-  WriteRegStr HKCU "Software\Classes\Applications\Proofline.exe" FriendlyAppName "Proofline"
-  WriteRegStr HKCU "Software\Proofline\Capabilities" ApplicationName "Proofline"
-  WriteRegStr HKCU "Software\Proofline\Capabilities" ApplicationDescription "AI 文档审阅工具"
-  WriteRegStr HKCU "Software\RegisteredApplications" "Proofline" "Software\Proofline\Capabilities"
-  !insertmacro ProoflineRegisterExtension md Proofline.Markdown
-  !insertmacro ProoflineRegisterExtension markdown Proofline.Markdown
-  !insertmacro ProoflineRegisterExtension mdown Proofline.Markdown
-  !insertmacro ProoflineRegisterExtension mkd Proofline.Markdown
-  !insertmacro ProoflineRegisterExtension txt Proofline.Text
-  !insertmacro ProoflineRegisterOpenWith html
-  !insertmacro ProoflineRegisterOpenWith htm
-  !insertmacro ProoflineRegisterOpenWith docx
+  WriteRegStr HKCU "Software\Classes\Stetwise.Markdown" "" "Markdown 文档"
+  WriteRegStr HKCU "Software\Classes\Stetwise.Markdown\DefaultIcon" "" '$\"$appExe$\",0'
+  WriteRegStr HKCU "Software\Classes\Stetwise.Markdown\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
+  WriteRegStr HKCU "Software\Classes\Stetwise.Text" "" "文本文档"
+  WriteRegStr HKCU "Software\Classes\Stetwise.Text\DefaultIcon" "" '$\"$appExe$\",0'
+  WriteRegStr HKCU "Software\Classes\Stetwise.Text\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
+  WriteRegStr HKCU "Software\Classes\Stetwise.Document" "" "Stetwise 文档"
+  WriteRegStr HKCU "Software\Classes\Stetwise.Document\DefaultIcon" "" '$\"$appExe$\",0'
+  WriteRegStr HKCU "Software\Classes\Stetwise.Document\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
+  WriteRegStr HKCU "Software\Classes\Applications\Stetwise.exe\shell\open\command" "" '$\"$appExe$\" $\"%1$\"'
+  WriteRegStr HKCU "Software\Classes\Applications\Stetwise.exe" FriendlyAppName "Stetwise"
+  WriteRegStr HKCU "Software\Stetwise\Capabilities" ApplicationName "Stetwise"
+  WriteRegStr HKCU "Software\Stetwise\Capabilities" ApplicationDescription "AI 文档审阅工具"
+  WriteRegStr HKCU "Software\RegisteredApplications" "Stetwise" "Software\Stetwise\Capabilities"
+  !insertmacro StetwiseRegisterExtension md Stetwise.Markdown
+  !insertmacro StetwiseRegisterExtension markdown Stetwise.Markdown
+  !insertmacro StetwiseRegisterExtension mdown Stetwise.Markdown
+  !insertmacro StetwiseRegisterExtension mkd Stetwise.Markdown
+  !insertmacro StetwiseRegisterExtension txt Stetwise.Text
+  !insertmacro StetwiseRegisterOpenWith html
+  !insertmacro StetwiseRegisterOpenWith htm
+  !insertmacro StetwiseRegisterOpenWith docx
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
-  ${If} $ProoflineDesktop == ${BST_CHECKED}
-    CreateShortCut "$DESKTOP\Proofline.lnk" "$appExe" "" "$appExe" 0
+  ${If} $StetwiseDesktop == ${BST_CHECKED}
+    CreateShortCut "$DESKTOP\Stetwise.lnk" "$appExe" "" "$appExe" 0
   ${Else}
-    Delete "$DESKTOP\Proofline.lnk"
+    Delete "$DESKTOP\Stetwise.lnk"
   ${EndIf}
-  ; Windows 11 does not let installers pin or claim defaults silently; Proofline's
+  ; Windows 11 does not let installers pin or claim defaults silently; Stetwise's
   ; first-run setup checks both and walks the user through the one required click.
-  WriteRegDWORD HKCU "Software\Proofline\Installer" Associate $ProoflineAssociate
-  WriteRegDWORD HKCU "Software\Proofline\Installer" Desktop $ProoflineDesktop
-  WriteRegDWORD HKCU "Software\Proofline\Installer" Taskbar $ProoflineTaskbar
+  WriteRegDWORD HKCU "Software\Stetwise\Installer" Associate $StetwiseAssociate
+  WriteRegDWORD HKCU "Software\Stetwise\Installer" Desktop $StetwiseDesktop
+  WriteRegDWORD HKCU "Software\Stetwise\Installer" Taskbar $StetwiseTaskbar
 !macroend
 
-!macro ProoflineUnregisterExtension EXT PROGID
+!macro StetwiseUnregisterExtension EXT PROGID
   DeleteRegValue HKCU "Software\Classes\.${EXT}\OpenWithProgids" "${PROGID}"
   ReadRegStr $R1 HKCU "Software\Classes\.${EXT}" ""
   ${If} $R1 == "${PROGID}"
-    ReadRegStr $R2 HKCU "Software\Proofline\Installer\PreviousAssociations" "${EXT}"
+    ReadRegStr $R2 HKCU "Software\Stetwise\Installer\PreviousAssociations" "${EXT}"
     ${If} $R2 != ""
       WriteRegStr HKCU "Software\Classes\.${EXT}" "" "$R2"
     ${Else}
@@ -217,50 +253,52 @@ FunctionEnd
   ; An upgrade runs this uninstaller first; keep shortcuts and file types in place
   ; so the new version takes over without a gap.
   ${If} ${isUpdated}
-    Goto proofline_uninstall_done
+    Goto stetwise_uninstall_done
   ${EndIf}
-  Delete "$DESKTOP\Proofline.lnk"
-  !insertmacro ProoflineUnregisterExtension md Proofline.Markdown
-  !insertmacro ProoflineUnregisterExtension markdown Proofline.Markdown
-  !insertmacro ProoflineUnregisterExtension mdown Proofline.Markdown
-  !insertmacro ProoflineUnregisterExtension mkd Proofline.Markdown
-  !insertmacro ProoflineUnregisterExtension txt Proofline.Text
-  DeleteRegValue HKCU "Software\Classes\.html\OpenWithProgids" "Proofline.Document"
-  DeleteRegValue HKCU "Software\Classes\.htm\OpenWithProgids" "Proofline.Document"
-  DeleteRegValue HKCU "Software\Classes\.docx\OpenWithProgids" "Proofline.Document"
-  DeleteRegKey HKCU "Software\Classes\Proofline.Markdown"
-  DeleteRegKey HKCU "Software\Classes\Proofline.Text"
-  DeleteRegKey HKCU "Software\Classes\Proofline.Document"
-  DeleteRegKey HKCU "Software\Classes\Applications\Proofline.exe"
-  DeleteRegValue HKCU "Software\RegisteredApplications" "Proofline"
-  DeleteRegKey HKCU "Software\Proofline\Capabilities"
+  Delete "$DESKTOP\Stetwise.lnk"
+  !insertmacro StetwiseUnregisterExtension md Stetwise.Markdown
+  !insertmacro StetwiseUnregisterExtension markdown Stetwise.Markdown
+  !insertmacro StetwiseUnregisterExtension mdown Stetwise.Markdown
+  !insertmacro StetwiseUnregisterExtension mkd Stetwise.Markdown
+  !insertmacro StetwiseUnregisterExtension txt Stetwise.Text
+  DeleteRegValue HKCU "Software\Classes\.html\OpenWithProgids" "Stetwise.Document"
+  DeleteRegValue HKCU "Software\Classes\.htm\OpenWithProgids" "Stetwise.Document"
+  DeleteRegValue HKCU "Software\Classes\.docx\OpenWithProgids" "Stetwise.Document"
+  DeleteRegKey HKCU "Software\Classes\Stetwise.Markdown"
+  DeleteRegKey HKCU "Software\Classes\Stetwise.Text"
+  DeleteRegKey HKCU "Software\Classes\Stetwise.Document"
+  DeleteRegKey HKCU "Software\Classes\Applications\Stetwise.exe"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "Stetwise"
+  DeleteRegKey HKCU "Software\Stetwise\Capabilities"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
-  proofline_uninstall_done:
+  stetwise_uninstall_done:
 !macroend
 
-; Marks and settings live in $INSTDIR\ProoflineData by default. The stock uninstaller
+; Marks and settings live in $INSTDIR\StetwiseData by default. The stock uninstaller
 ; deletes the whole $INSTDIR, which on every upgrade would erase them, so remove
-; the program files one by one and leave ProoflineData alone.
+; the program files one by one and leave StetwiseData alone.
 !macro customRemoveFiles
   SetOutPath $TEMP
   ClearErrors
   FindFirst $R1 $R2 "$INSTDIR\*.*"
-  proofline_remove_loop:
-    StrCmp $R2 "" proofline_remove_done
-    StrCmp $R2 "." proofline_remove_next
-    StrCmp $R2 ".." proofline_remove_next
-    StrCmp $R2 "ProoflineData" proofline_remove_next
-    StrCmp $R2 "RedlineData" proofline_remove_next
+  stetwise_remove_loop:
+    StrCmp $R2 "" stetwise_remove_done
+    StrCmp $R2 "." stetwise_remove_next
+    StrCmp $R2 ".." stetwise_remove_next
+    StrCmp $R2 "StetwiseData" stetwise_remove_next
+    ; Data folders from before the renames; the app moves them to StetwiseData on its first start.
+    StrCmp $R2 "ProoflineData" stetwise_remove_next
+    StrCmp $R2 "RedlineData" stetwise_remove_next
     ${If} ${FileExists} "$INSTDIR\$R2\*.*"
       RMDir /r "$INSTDIR\$R2"
     ${Else}
       Delete "$INSTDIR\$R2"
     ${EndIf}
-  proofline_remove_next:
+  stetwise_remove_next:
     FindNext $R1 $R2
-    Goto proofline_remove_loop
-  proofline_remove_done:
+    Goto stetwise_remove_loop
+  stetwise_remove_done:
   FindClose $R1
-  ; Removed only when empty, that is when no ProoflineData was ever written here.
+  ; Removed only when empty, that is when no StetwiseData was ever written here.
   RMDir "$INSTDIR"
 !macroend

@@ -9,7 +9,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { readLoginEnvironment, macSearchDirectories, stopProcessTree } = require('./platform.cjs');
 
-const SHORT_PROMPT = 'Read the file .redline/TASK.md in the current directory. First read the whole document it names, then carry out every instruction in it, edit that document directly, and reply in the format it asks for.';
+const SHORT_PROMPT = 'Read the file .stetwise/TASK.md in the current directory. First read the whole document it names, then carry out every instruction in it, edit that document directly, and reply in the format it asks for.';
 
 // {prompt} is the short ASCII instruction above; {task} the task file; {file} the document; {dir} the working folder.
 const CLI_ADAPTERS = [
@@ -178,13 +178,45 @@ async function handshake(executable) {
   } catch { return null; }
 }
 
+// The Claude desktop app ships its own Claude Code outside PATH, in a folder named after
+// the version (and a build hash on Windows). Look there too, newest version first, and
+// never store the path: it changes with every desktop update.
+function versionKey(name) { return String(name).split(/[^\d]+/).filter(Boolean).map((part) => part.padStart(6, '0')).join('.'); }
+async function newestFirst(dir) {
+  try { return (await fs.readdir(dir, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort((a, b) => versionKey(b).localeCompare(versionKey(a))); }
+  catch { return []; }
+}
+async function bundledClaudeCode() {
+  const found = [], home = os.homedir();
+  if (process.platform === 'win32') {
+    const localData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    // Store (MSIX) install: %LOCALAPPDATA%\Claude-Data\<package>\claude-code\<version>\<build>\claude.exe
+    for (const pkg of await newestFirst(path.join(localData, 'Claude-Data'))) {
+      const root = path.join(localData, 'Claude-Data', pkg, 'claude-code');
+      for (const version of await newestFirst(root)) {
+        if (existsSync(path.join(root, version, 'claude.exe'))) found.push(path.join(root, version, 'claude.exe'));
+        for (const build of await newestFirst(path.join(root, version))) found.push(path.join(root, version, build, 'claude.exe'));
+      }
+    }
+    // Classic install: %APPDATA%\Claude\claude-code\<version>\claude.exe
+    for (const version of await newestFirst(path.join(appData, 'Claude', 'claude-code'))) found.push(path.join(appData, 'Claude', 'claude-code', version, 'claude.exe'));
+    found.push(path.join(home, '.claude', 'local', 'claude.exe'));
+  } else {
+    const root = path.join(home, 'Library', 'Application Support', 'Claude', 'claude-code');
+    for (const version of await newestFirst(root)) found.push(path.join(root, version, 'claude'));
+    found.push(path.join(home, '.claude', 'local', 'claude'));
+  }
+  return found.filter((file) => existsSync(file));
+}
+
 let detectCache = null, detectedAt = 0, detectedSignature = '';
 async function detect(overrides = {}, { refresh = false } = {}) {
   const signature = JSON.stringify(overrides);
   if (refresh || signature !== detectedSignature || Date.now() - detectedAt > 60000) { detectCache = null; shellPath = null; shellVariablesCache = null; loginEnvironmentCache = null; }
   detectedSignature = signature; detectedAt = Date.now();
   detectCache ||= Promise.all(CLI_ADAPTERS.map(async (adapter) => {
-    const commands = overrides[adapter.id]?.path ? [overrides[adapter.id].path] : adapter.id === 'gemini' ? [...await geminiLaunchers(), ...adapter.commands] : adapter.commands;
+    const bundled = adapter.id === 'claude-code' && !overrides[adapter.id]?.path ? await bundledClaudeCode() : [];
+    const commands = overrides[adapter.id]?.path ? [overrides[adapter.id].path] : adapter.id === 'gemini' ? [...await geminiLaunchers(), ...adapter.commands] : [...adapter.commands, ...bundled];
     for (const command of commands) {
       const found = await which(command);
       if (!found) continue;
@@ -193,19 +225,26 @@ async function detect(overrides = {}, { refresh = false } = {}) {
         const help = await runCommand(found, adapter.id === 'codex' ? ['exec', '--help'] : adapter.id === 'opencode' ? ['run', '--help'] : ['--help'], { timeout: 15000 });
         let auth = 'unknown';
         if (adapter.id === 'codex') { const login = await runCommand(found, ['login', 'status'], { timeout: 10000 }); auth = login.ok ? 'ready' : /not logged|log in|login/i.test(login.stdout + login.stderr) ? 'required' : 'unknown'; }
+        if (adapter.id === 'claude-code') {
+          // The copy bundled with the Claude desktop app does not share the app's sign-in.
+          const env = { ...await shellVariables(), ...process.env };
+          if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) auth = 'configured';
+          else { const status = await runCommand(found, ['auth', 'status'], { timeout: 10000 });
+            try { auth = JSON.parse(status.stdout).loggedIn ? 'ready' : 'required'; } catch { /* versions without auth status */ } }
+        }
         if (adapter.id === 'gemini') {
           try { const settings = JSON.parse(await fs.readFile(path.join(await geminiHome(found), 'settings.json'), 'utf8'));
             const extra = await adapterEnvironment('gemini', found);
             if (settings.security?.auth?.selectedType === 'gemini-api-key') auth = process.env.GEMINI_API_KEY || (await shellVariables()).GEMINI_API_KEY || extra.GEMINI_API_KEY ? 'configured' : 'required';
           } catch { /* Let the explicit connection test explain missing initialization. */ }
         }
-        return { id: adapter.id, path: found, version, auth, help: help.stdout + help.stderr };
+        return { id: adapter.id, path: found, version, auth, help: help.stdout + help.stderr, bundled: bundled.includes(command) };
       }
     }
     return { id: adapter.id, path: null, version: null };
   }));
   const found = await detectCache;
-  return CLI_ADAPTERS.map((adapter, index) => ({ id: adapter.id, kind: 'cli', name: adapter.name, vendor: adapter.vendor, auth: found[index].auth || 'unknown',
+  return CLI_ADAPTERS.map((adapter, index) => ({ id: adapter.id, kind: 'cli', name: adapter.name, vendor: adapter.vendor, auth: found[index].auth || 'unknown', bundled: Boolean(found[index].bundled),
     available: Boolean(found[index].version), path: found[index].path, version: found[index].version,
     defaultArgs: compatibleArgs(adapter, found[index].help), args: overrides[adapter.id]?.args || compatibleArgs(adapter, found[index].help),
     compatibility: validateArgs(overrides[adapter.id]?.args || compatibleArgs(adapter, found[index].help), found[index].help),
@@ -237,7 +276,7 @@ function compatibleArgs(adapter, help = '') {
 }
 
 function connectionArgs(item) {
-  const prompt = 'Reply with exactly REDLINE_READY. Do not call tools, read files, or change files.';
+  const prompt = 'Reply with exactly STETWISE_READY. Do not call tools, read files, or change files.';
   const args = {
     codex: ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--json', prompt],
     'claude-code': ['-p', prompt],
@@ -273,7 +312,7 @@ function readableOutput(output) {
 }
 
 function responseReady(output) {
-  return readableOutput(output).replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/).some((line) => line.trim() === 'REDLINE_READY');
+  return readableOutput(output).replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/).some((line) => line.trim() === 'STETWISE_READY');
 }
 
 function connectionResult(result) {
@@ -349,22 +388,22 @@ class AgentRunner {
     let cwd, file, cleanup, taskFile;
     if (scope === 'folder') {
       cwd = path.dirname(documentPath); file = documentPath;
-      const dir = path.join(cwd, '.redline'), existed = existsSync(dir);
+      const dir = path.join(cwd, '.stetwise'), existed = existsSync(dir);
       await fs.mkdir(dir, { recursive: true });
       taskFile = path.join(dir, 'TASK-' + id + '.md');
       cleanup = async () => { await fs.rm(taskFile, { force: true }); if (!existed) await fs.rmdir(dir).catch(() => {}); };
     } else {
-      cwd = this.store ? path.join(this.store.root, 'work', id) : await fs.mkdtemp(path.join(os.tmpdir(), 'redline-'));
+      cwd = this.store ? path.join(this.store.root, 'work', id) : await fs.mkdtemp(path.join(os.tmpdir(), 'stetwise-'));
       await fs.mkdir(cwd, { recursive: true }); file = path.join(cwd, name);
-      await fs.copyFile(documentPath, file); await fs.mkdir(path.join(cwd, '.redline'));
-      taskFile = path.join(cwd, '.redline', 'TASK.md');
+      await fs.copyFile(documentPath, file); await fs.mkdir(path.join(cwd, '.stetwise'));
+      taskFile = path.join(cwd, '.stetwise', 'TASK.md');
       // Retain the proposed copy and task so interrupted runs can be recovered.
       cleanup = async () => {};
     }
     // Precise targeting: the working copy carries numbered anchors around each marked span.
     // Use it only when, without its anchors, it is byte-for-byte the document on disk.
     const anchored = scope !== 'folder' && typeof copyText === 'string' && Array.isArray(anchors) && anchors.length > 0
-      && copyText.replace(/\[\[\/?PL-\d+\]\]/g, '') === original;
+      && copyText.replace(/\[\[\/?(?:SW|PL)-\d+\]\]/g, '') === original;
     if (anchored) await fs.writeFile(file, copyText, 'utf8');
     await fs.writeFile(taskFile, task, 'utf8');
     const relativeTask = path.relative(cwd, taskFile).replaceAll(path.sep, '/');
@@ -391,12 +430,20 @@ class AgentRunner {
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', append); child.stderr.on('data', append);
     record.heartbeat = setInterval(() => {
+      // Live preview: send the working copy whenever the AI saves it.
+      fs.stat(file).then(async (stat) => {
+        const stamp = `${stat.mtimeMs}:${stat.size}`;
+        if (stamp === record.progressStamp || stat.size > 8 * 1024 * 1024 || !this.runs.has(id)) return;
+        record.progressStamp = stamp;
+        const content = (await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, '');
+        if (this.runs.has(id)) this.send('agents:progress', { id, content, at: Date.now() });
+      }).catch(() => { /* the agent may be replacing the file */ });
       const silenceMs = Date.now() - (record.lastOutputAt || record.startedAt);
       this.send('agents:status', { id, pid: child.pid, alive: child.exitCode === null, silenceMs, lastOutputAt: record.lastOutputAt, phase: silenceMs > 60000 ? 'waiting' : 'running' });
       void this.persist(record).catch((error) => this.send('agents:status', { id, storageError: error.message }));
     }, 3000);
     const timeout = setTimeout(() => { record.timedOut = true; killTree(child); }, Math.min(240, Math.max(1, Number(timeoutMinutes) || 30)) * 60000);
-    child.on('error', (error) => { record.spawnError = true; append('\n[Proofline] ' + error.message + '\n'); });
+    child.on('error', (error) => { record.spawnError = true; append('\n[Stetwise] ' + error.message + '\n'); });
     child.on('close', async (code) => {
       clearTimeout(timeout); clearInterval(record.heartbeat);
       let proposed = null;
@@ -451,4 +498,4 @@ async function runCommand(executable, args, { timeout = 20000, cwd } = {}) {
   });
 }
 
-module.exports = { runCommand, which, AgentRunner, detect, diagnose, readableOutput, responseReady, connectionResult, compatibleArgs, validateArgs, helpFlags, connectionArgs, parseEnvironment, redactOutput, openInIde, CLI_ADAPTERS, IDE_ADAPTERS, SHORT_PROMPT, splitTemplate, launch };
+module.exports = { bundledClaudeCode, runCommand, which, AgentRunner, detect, diagnose, readableOutput, responseReady, connectionResult, compatibleArgs, validateArgs, helpFlags, connectionArgs, parseEnvironment, redactOutput, openInIde, CLI_ADAPTERS, IDE_ADAPTERS, SHORT_PROMPT, splitTemplate, launch };

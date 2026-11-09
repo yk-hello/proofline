@@ -13,15 +13,15 @@ const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'previe
 const executablePath = [process.env.CHROME_PATH, process.env.EDGE_PATH, 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((item) => item && existsSync(item));
 const browser = await chromium.launch(executablePath ? { executablePath } : {});
 const errors = [], checks = [];
-const doc = ['# 季度报告', '', '<!-- proofline:chart type=bar title="季度销售额" unit="万元" -->', '| 季度 | 线上 | 门店 |', '|---|---:|---:|', '| Q1 | 80 | 40 |', '| Q2 | 95 | 55 |', '| Q3 | 120 | 60 |', '| Q4 | 110 | 72 |', '',
+const doc = ['# 季度报告', '', '<!-- stetwise:chart type=bar title="季度销售额" unit="万元" -->', '| 季度 | 线上 | 门店 |', '|---|---:|---:|', '| Q1 | 80 | 40 |', '| Q2 | 95 | 55 |', '| Q3 | 120 | 60 |', '| Q4 | 110 | 72 |', '',
   '| 部门 | 人数 | 预算 |', '|---|---:|---:|', '| 研发 | 42 | 3.5 |', '| 销售 | 30 | 2.25 |', '| 运营 | 18 | 1.5 |', '', '```mermaid', 'pie title 渠道', '  "线上" : 45', '  "门店" : 30', '```', '', '收入总结在这里。', ''].join('\n');
 try {
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 1000 } })).newPage();
   page.on('pageerror', (error) => errors.push(error.message));
   for (let attempt = 0; ; attempt++) { try { await page.goto(`http://127.0.0.1:${port}/`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); } }
-  await page.waitForFunction(() => window.prooflineReader?.getState().document.ready);
-  await page.evaluate(async (text) => { await window.prooflineReader.openFile({ file: new File([text], 'report.md', { type: 'text/markdown' }) }); }, doc);
-  await page.waitForFunction(() => window.prooflineReader.getState().document.name === 'report.md');
+  await page.waitForFunction(() => window.stetwiseReader?.getState().document.ready);
+  await page.evaluate(async (text) => { await window.stetwiseReader.openFile({ file: new File([text], 'report.md', { type: 'text/markdown' }) }); }, doc);
+  await page.waitForFunction(() => window.stetwiseReader.getState().document.name === 'report.md');
 
   // 1. Charts and diagrams render, without leaking labels into document text.
   await page.waitForFunction(() => document.querySelector('.pl-chart-block')?.shadowRoot?.querySelector('svg path[data-tip]') && document.querySelector('.pl-diagram-host')?.shadowRoot?.querySelector('svg'), null, { timeout: 20000 });
@@ -38,7 +38,7 @@ try {
   await page.locator('.selection-tools .sel-type.type-fix').click();
   await page.locator('.mark-popover textarea').fill('Q3 门店改成 66');
   await page.keyboard.press('Escape');
-  const chartMark = (await page.evaluate(() => window.prooflineReader.getAnnotations()))[0];
+  const chartMark = (await page.evaluate(() => window.stetwiseReader.getAnnotations()))[0];
   assert.match(chartMark.anchor.rawQuote, /Q3 \| 120 \| 60/);
   checks.push('chart-component-mark');
 
@@ -50,10 +50,10 @@ try {
   assert.deepEqual(await plain.locator('tbody tr td:first-child').allInnerTexts(), ['研发', '销售', '运营']);
   const foot = await plain.locator('tfoot td').evaluateAll((cells) => cells.map((cell) => cell.dataset.value || ''));
   assert.deepEqual(foot.slice(0, 6), ['合计', '90', '7.25', '平均', '30', '2.417']);
-  assert.equal(await page.evaluate(() => window.prooflineReader.getContent().content), doc, 'sorting and totals do not change the document');
+  assert.equal(await page.evaluate(() => window.stetwiseReader.getContent().content), doc, 'sorting and totals do not change the document');
   await plain.hover(); await plain.locator('.pl-insert-total').click();
-  await page.waitForFunction(() => window.prooflineReader.getContent().content.includes('| 合计 | 90 | 7.25 |'));
-  assert.match(await page.evaluate(() => window.prooflineReader.getContent().content), /\| 运营 \| 18 \| 1\.5 \|\n\| 合计 \| 90 \| 7\.25 \|\n\n```mermaid/);
+  await page.waitForFunction(() => window.stetwiseReader.getContent().content.includes('| 合计 | 90 | 7.25 |'));
+  assert.match(await page.evaluate(() => window.stetwiseReader.getContent().content), /\| 运营 \| 18 \| 1\.5 \|\n\| 合计 \| 90 \| 7\.25 \|\n\n```mermaid/);
   checks.push('table-sort-totals-insert');
 
   // 4. Document statistics.
@@ -76,7 +76,7 @@ try {
   await page.locator('.rail-document-instruction').click();
   await page.locator('.mark-popover textarea').fill('全文改成正式语气');
   await page.keyboard.press('Escape');
-  const marks = await page.evaluate(() => window.prooflineReader.getAnnotations());
+  const marks = await page.evaluate(() => window.stetwiseReader.getAnnotations());
   assert.deepEqual(marks.filter((mark) => mark.type === 'free').map((mark) => [Boolean(mark.anchor.document), mark.note]), [[false, '改成一张表'], [true, '全文改成正式语气']]);
   assert.match(await page.locator('.rail-item.type-free').first().innerText(), /全文/);
   checks.push('free-instructions');
@@ -87,11 +87,11 @@ try {
   await page.locator('.markdown-editor .ProseMirror p').last().click();
   await page.keyboard.press('End'); await page.keyboard.press('Enter'); await page.keyboard.type('/');
   await page.locator('.milkdown-slash-menu li', { hasText: '饼图' }).first().click();
-  await page.waitForFunction(() => window.prooflineReader.getContent().content.includes('proofline:chart type=pie'), null, { timeout: 5000 });
+  await page.waitForFunction(() => window.stetwiseReader.getContent().content.includes('stetwise:chart type=pie'), null, { timeout: 5000 });
   await page.locator('.mode-switch button', { hasText: '阅读' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.pl-chart-block').length === 2 && [...document.querySelectorAll('.pl-chart-block')].every((block) => block.shadowRoot?.querySelector('svg')), null, { timeout: 10000 });
-  const saved = await page.evaluate(() => window.prooflineReader.getContent().content);
-  assert.match(saved, /<!-- proofline:chart type=pie title="渠道占比" -->\n\| 渠道 \| 占比 \|/);
+  const saved = await page.evaluate(() => window.stetwiseReader.getContent().content);
+  assert.match(saved, /<!-- stetwise:chart type=pie title="渠道占比" -->\n\| 渠道 \| 占比 \|/);
   assert.ok(saved.startsWith(doc.split('| 运营 | 18 | 1.5 |')[0]), 'untouched blocks, including the existing chart, stay byte-for-byte');
   checks.push('editor-insert-chart');
   assert.deepEqual(errors, []);

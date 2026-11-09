@@ -20,8 +20,8 @@ try {
     await put(path.join(appData, 'Proofline', 'IndexedDB', 'x.leveldb'));
     await put(path.join(appData, 'Redline', 'file-access.json'), '{"old":1}');
     await put(path.join(appData, 'Stetwise', 'Local Storage', 'fresh'));
-    const chosen = adoptUserData(appData, 'Stetwise');
-    assert.equal(chosen, path.join(appData, 'Stetwise'));
+    assert.equal(adoptUserData(appData, 'Stetwise'), null);
+    const chosen = path.join(appData, 'Stetwise');
     assert.equal(await readFile(path.join(chosen, 'file-access.json'), 'utf8'), '{"recent":1}');
     assert.ok(!existsSync(path.join(appData, 'Proofline')));
     assert.ok(!existsSync(path.join(chosen, 'Local Storage', 'fresh')));
@@ -32,14 +32,14 @@ try {
     const appData = path.join(root, 'appdata-2');
     await put(path.join(appData, 'Stetwise', 'file-access.json'), '{"mine":1}');
     await put(path.join(appData, 'Proofline', 'file-access.json'), '{"old":1}');
-    assert.equal(adoptUserData(appData, 'Stetwise'), path.join(appData, 'Stetwise'));
+    assert.equal(adoptUserData(appData, 'Stetwise'), null);
     assert.equal(await readFile(path.join(appData, 'Stetwise', 'file-access.json'), 'utf8'), '{"mine":1}');
     assert.ok(existsSync(path.join(appData, 'Proofline')));
   }
   // 3. Nothing earlier: a clean start.
   {
     const appData = path.join(root, 'appdata-3');
-    assert.equal(adoptUserData(appData, 'Stetwise'), path.join(appData, 'Stetwise'));
+    assert.equal(adoptUserData(appData, 'Stetwise'), null);
   }
   // 4. Proofline installed inside Redline's folder: settings from ProoflineData (newer),
   //    marks and runs from RedlineData one level up.

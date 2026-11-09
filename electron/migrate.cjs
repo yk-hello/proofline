@@ -15,18 +15,18 @@ function usedProfile(folder) {
  * The user data folder to use. `current` is appData/<name>, built by hand: Electron's
  * app.getPath('userData') creates the folder, so asking it first would always look "new".
  * A folder that only a first start of this version created is replaced by the newest used
- * profile from an earlier name. If the old folder is locked (an older copy still running),
- * keep using it where it is.
+ * profile from an earlier name. Returns null when the default folder is right (also after a
+ * move), or the old folder to keep using when it is locked (an older copy still running).
  */
 function adoptUserData(appData, name, previousNames = PREVIOUS_APP_NAMES) {
   const current = path.join(appData, name);
-  if (usedProfile(current)) return current;
+  if (usedProfile(current)) return null;
   const previous = previousNames.map((item) => path.join(appData, item)).find((folder) => folder !== current && usedProfile(folder));
-  if (!previous) return current;
+  if (!previous) return null;
   try {
     if (fs.existsSync(current)) fs.rmSync(current, { recursive: true, force: true });
     fs.renameSync(previous, current);
-    return current;
+    return null;
   } catch { return previous; }
 }
 

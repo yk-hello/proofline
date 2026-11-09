@@ -17,7 +17,8 @@ const { DataStore, installationDirectory } = require('./data-store.cjs');
 const { adoptUserData, adoptDataFolder } = require('./migrate.cjs');
 const { openMacTerminal } = require('./platform.cjs');
 
-app.setName('Stetwise');
+const APP_NAME = 'Stetwise';
+app.setName(APP_NAME);
 app.setAppUserModelId('app.stetwise.desktop');
 protocol.registerSchemesAsPrivileged([
   { scheme: 'mengx', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
@@ -29,7 +30,9 @@ const userDataIndex = args.indexOf('--user-data');
 if (userDataIndex >= 0) app.setPath('userData', path.resolve(args[userDataIndex + 1]));
 else {
   // Renaming the product must preserve existing documents, grants and reading state (see migrate.cjs).
-  app.setPath('userData', adoptUserData(app.getPath('appData'), app.getName()));
+  // Electron's default is appData/<name>; only point elsewhere when an old profile is still in use.
+  const locked = adoptUserData(app.getPath('appData'), APP_NAME);
+  if (locked) app.setPath('userData', locked);
 }
 const devUrl = !app.isPackaged && (process.env.STETWISE_DEV_URL || process.env.MENGX_DEV_URL);
 const exportIndex = args.indexOf('--export-directory');

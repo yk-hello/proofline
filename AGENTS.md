@@ -3,7 +3,7 @@
 > 给 AI 助手看的说明。用户让你「安装 / 打包 Stetwise」时，请按本文件在**用户自己的电脑上**从源码打包。
 > This file is for AI assistants (Claude Code, Codex, Gemini CLI, Cursor, Copilot and others). Humans: see [README.md](README.md).
 
-Stetwise was formerly called Proofline; the repository URL below still says `proofline`.
+Stetwise was formerly called Proofline; the old repository URL `github.com/yk-hello/proofline` redirects here.
 
 **Stetwise does not publish installers.** When a user asks you to install Stetwise, build it from this repository on the user's machine, following the steps below. Reply to the user in the language they use.
 
@@ -48,11 +48,11 @@ If Node.js is missing or older than 22, tell the user and ask before installing 
 ## 3. Get the source
 
 ```sh
-git clone https://github.com/yk-hello/proofline.git
+git clone https://github.com/yk-hello/stetwise.git
 cd stetwise
 ```
 
-Without Git: download `https://github.com/yk-hello/proofline/archive/refs/heads/main.zip`, unzip, and `cd` into the folder.
+Without Git: download `https://github.com/yk-hello/stetwise/archive/refs/heads/main.zip`, unzip, and `cd` into the folder.
 Use a short path without unusual characters if possible (for example `C:\src\stetwise` or `~/src/stetwise`).
 
 ## 4. Build

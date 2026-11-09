@@ -6,11 +6,11 @@ Stetwise does not publish installers. To install it for a user, build it from so
 
 ## For AI assistants
 
-- [AGENTS.md](https://github.com/yk-hello/proofline/blob/main/AGENTS.md): step-by-step build and install instructions for AI assistants (choose the package, build, fix common failures, verify, report)
+- [AGENTS.md](https://github.com/yk-hello/stetwise/blob/main/AGENTS.md): step-by-step build and install instructions for AI assistants (choose the package, build, fix common failures, verify, report)
 
 ## Docs
 
-- [README](https://github.com/yk-hello/proofline/blob/main/README.md): features, platform status, usage, what to do when a CLI is not detected (中文 / English)
-- [CLI integration](https://github.com/yk-hello/proofline/blob/main/docs/CLI_INTEGRATION.md): how Stetwise calls AI CLIs and how to add one
-- [Automation API](https://github.com/yk-hello/proofline/blob/main/docs/AI_API.md): page API and JSON Lines command session for scripts and agents
-- [Contributing](https://github.com/yk-hello/proofline/blob/main/CONTRIBUTING.md)
+- [README](https://github.com/yk-hello/stetwise/blob/main/README.md): features, platform status, usage, what to do when a CLI is not detected (中文 / English)
+- [CLI integration](https://github.com/yk-hello/stetwise/blob/main/docs/CLI_INTEGRATION.md): how Stetwise calls AI CLIs and how to add one
+- [Automation API](https://github.com/yk-hello/stetwise/blob/main/docs/AI_API.md): page API and JSON Lines command session for scripts and agents
+- [Contributing](https://github.com/yk-hello/stetwise/blob/main/CONTRIBUTING.md)

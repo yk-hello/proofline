@@ -7,16 +7,20 @@ const PERSONAL_FILTERS = ['all', 'highlight', 'underline', 'note', 'bookmark'];
 const FILTER_KEYS = { highlight: 'filterHighlight', underline: 'filterUnderline', note: 'filterNote', bookmark: 'filterBookmark' };
 const PERSONAL_ICONS = { highlight: Highlighter, underline: Underline, note: MessageCircle, bookmark: Bookmark };
 
-export default function RedlineRail({ language, mode, onMode, marks, numbers, activeId, onSelect, onRemove, onSend,
-  onBookmark, onExport, onUndo, onRedo, canUndo, canRedo, onHide, busy, storage, onStorage, onDocumentInstruction }) {
+export default function InstructionRail({ language, mode, onMode, marks, numbers, occurrences = new Map(), activeId, onSelect, onRemove, onSend,
+  onBookmark, onExport, onUndo, onRedo, canUndo, canRedo, onHide, busy, storage, onStorage, onDocumentInstruction, onClearDone }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [stateFilter, setStateFilter] = useState('all');
   const redlines = useMemo(() => sortByPosition(marks.filter((item) => isRedline(item.type))), [marks]);
   const personal = useMemo(() => sortByPosition(marks.filter((item) => !isRedline(item.type))), [marks]);
   const open = redlines.filter((item) => ['open', 'sent', 'unchanged'].includes(item.status));
   const needle = query.trim().toLocaleLowerCase();
   const matches = (item) => !needle || `${item.label} ${item.anchor?.text} ${item.note} ${item.answer || ''}`.toLocaleLowerCase().includes(needle);
-  const list = (mode === 'redlines' ? redlines : personal.filter((item) => filter === 'all' || item.type === filter)).filter(matches);
+  const STATE_GROUPS = { open: ['open', 'sent', 'unchanged'], question: ['question'], done: ['resolved', 'answered'] };
+  const done = redlines.filter((item) => STATE_GROUPS.done.includes(item.status));
+  const counts = Object.fromEntries(Object.entries(STATE_GROUPS).map(([key, states]) => [key, redlines.filter((item) => states.includes(item.status || 'open')).length]));
+  const list = (mode === 'redlines' ? redlines.filter((item) => stateFilter === 'all' || STATE_GROUPS[stateFilter].includes(item.status || 'open')) : personal.filter((item) => filter === 'all' || item.type === filter)).filter(matches);
 
   return <aside className="redline-rail" aria-label={t(language, mode === 'redlines' ? 'redlines' : 'marks')}>
     <div className="rail-head">
@@ -36,6 +40,11 @@ export default function RedlineRail({ language, mode, onMode, marks, numbers, ac
       <button className="icon-button quiet" onClick={onRedo} disabled={!canRedo} aria-label={t(language, 'redoMark')} title={t(language, 'redoMark')}><Redo2 size={15} /></button>
       <button className="icon-button quiet" onClick={onExport} aria-label={t(language, 'exportMarks')} title={t(language, 'exportMarks')}><Download size={15} /></button>
     </div>
+    {mode === 'redlines' && redlines.length > 0 && <div className="rail-filters" role="group" aria-label={language === 'zh' ? '按状态筛选' : 'Filter by state'}>
+      {['all', 'open', 'question', 'done'].map((value) => <button key={value} className={stateFilter === value ? 'selected' : ''} aria-pressed={stateFilter === value} onClick={() => setStateFilter(value)}>
+        {{ all: t(language, 'all'), open: t(language, 'open'), question: t(language, 'question'), done: t(language, 'resolved') }[value]}{value !== 'all' && counts[value] ? <small>{counts[value]}</small> : null}</button>)}
+      {done.length > 0 && onClearDone && <button className="rail-clear" onClick={() => onClearDone(done.map((item) => item.id))} title={language === 'zh' ? '移除已处理和已回答的指令，可以撤销' : 'Remove resolved and answered instructions; undoable'}>{language === 'zh' ? `清理已处理（${done.length}）` : `Clear done (${done.length})`}</button>}
+    </div>}
     {mode === 'marks' && <div className="rail-filters" role="group">
       {PERSONAL_FILTERS.map((value) => <button key={value} className={filter === value ? 'selected' : ''} aria-pressed={filter === value} onClick={() => setFilter(value)}>
         {value === 'all' ? t(language, 'all') : t(language, FILTER_KEYS[value])}</button>)}
@@ -52,7 +61,8 @@ export default function RedlineRail({ language, mode, onMode, marks, numbers, ac
               {isRedline(item.type) ? <span className={`mark-chip type-${item.type}`}>#{number} {typeLabel(language, item.type)}</span>
                 : <span className="rail-item-kind">{Icon && <Icon size={13} />}{typeLabel(language, item.type)}</span>}
               {item.status && item.status !== 'open' && <span className={`status-pill ${item.status}`}>{t(language, item.status)}</span>}
-              {item.sentTo && <small>{item.sentTo}</small>}
+              {item.sentTo && item.status !== 'open' && <small>{item.sentTo}</small>}
+              {occurrences.get(item.id) && <span className="rail-item-occurrence" title={t(language, 'occurrence', occurrences.get(item.id).occurrence, occurrences.get(item.id).total)}>{language === 'zh' ? `第 ${occurrences.get(item.id).occurrence} 处` : `#${occurrences.get(item.id).occurrence} of ${occurrences.get(item.id).total}`}</span>}
             </span>
             <span className="rail-item-quote">{item.type === 'bookmark' ? item.label : item.anchor?.document ? t(language, 'wholeDocument') : item.anchor?.text}</span>
             {item.note && <span className="rail-item-note">{item.note}</span>}

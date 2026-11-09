@@ -1,12 +1,12 @@
 // Word charts on import. A chart in a .docx is DrawingML (word/charts/chartN.xml) that
 // keeps the plotted values in caches, so the data can be read without Excel. Each chart
 // is replaced by a text marker before mammoth converts the document, and the marker is
-// then swapped for a Proofline chart: a Markdown table with a <!-- proofline:chart --> line.
+// then swapped for a Stetwise chart: a Markdown table with a <!-- stetwise:chart --> line.
 import JSZip from 'jszip';
 import { chartDirective } from './charts';
 
-const MARKER = (index) => `PROOFLINECHART${index}END`;
-const MARKER_PATTERN = /PROOFLINECHART(\d+)END/g;
+const MARKER = (index) => `STETWISECHART${index}END`;
+const MARKER_PATTERN = /STETWISECHART(\d+)END/g;
 
 const children = (node, name) => (node ? [...node.children].filter((child) => child.localName === name) : []);
 const child = (node, name) => children(node, name)[0] || null;
@@ -125,13 +125,13 @@ export function insertCharts(markdown, charts) {
 }
 
 /**
- * A .docx exported by Proofline marks its chart and diagram pictures in their
+ * A .docx exported by Stetwise marks its chart and diagram pictures in their
  * description. Turn them back: chart picture + the data table after it becomes the
  * chart directive + table; a diagram picture becomes its Mermaid source again.
  */
-export function restoreProoflineObjects(markdown) {
+export function restoreStetwiseObjects(markdown) {
   const decode = (value) => { try { return decodeURIComponent(value.replace(/\\(.)/g, '$1')); } catch { return null; } };
   return markdown
-    .replace(/!\[proofline-chart:([^\]]*)\]\([^)\s]*\)[ \t]*\n+(?=[ \t]{0,3}\|)/g, (all, spec) => { const value = decode(spec); return value === null ? all : `<!-- proofline:chart ${value} -->\n`; })
-    .replace(/!\[proofline-mermaid:([^\]]*)\]\([^)\s]*\)/g, (all, code) => { const value = decode(code); return value === null ? all : `\`\`\`mermaid\n${value.trim()}\n\`\`\``; });
+    .replace(/!\[(?:stetwise|proofline)-chart:([^\]]*)\]\([^)\s]*\)[ \t]*\n+(?=[ \t]{0,3}\|)/g, (all, spec) => { const value = decode(spec); return value === null ? all : `<!-- stetwise:chart ${value} -->\n`; })
+    .replace(/!\[(?:stetwise|proofline)-mermaid:([^\]]*)\]\([^)\s]*\)/g, (all, code) => { const value = decode(code); return value === null ? all : `\`\`\`mermaid\n${value.trim()}\n\`\`\``; });
 }

@@ -12,7 +12,7 @@ const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
 const macSupport = path.join(home, 'Library', 'Application Support');
 const platformPath = (win, mac) => (process.platform === 'win32' ? win : mac);
 
-// Config files that Proofline 0.3.0's "connect AI" step may have written to. That
+// Config files that Stetwise 0.3.0's "connect AI" step may have written to. That
 // step was removed: it reported apps as installed from leftover folders and gave
 // users nothing they could see. On first start we take our entries back out.
 const LEGACY_FILES = [
@@ -43,7 +43,7 @@ async function removeLegacyConnections(marker) {
     if (data?.mcpServers?.redline) {
       delete data.mcpServers.redline;
       if (!Object.keys(data.mcpServers).length) delete data.mcpServers;
-      // A file Proofline created from nothing (no backup) is removed entirely.
+      // A file Stetwise created from nothing (no backup) is removed entirely.
       if (!existsSync(backup) && !Object.keys(data).length) await fs.rm(file, { force: true });
       else await writeAtomic(file, JSON.stringify(data, null, 2) + '\n');
       cleaned.push(file);
@@ -80,11 +80,11 @@ async function defaultStatus() {
   for (const ext of EXTENSIONS) {
     const result = await runCommand('reg', ['query', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}\\UserChoice`, '/v', 'ProgId']);
     const progId = /ProgId\s+REG_SZ\s+(\S+)/i.exec(result.stdout)?.[1] || '';
-    let isRedline = /^Proofline\./i.test(progId);
+    let isRedline = /^Stetwise\./i.test(progId);
     if (!progId) {
       // Without a user choice Windows falls back to the class registered for the extension.
       const fallback = await runCommand('reg', ['query', `HKCU\\Software\\Classes\\${ext}`, '/ve']);
-      isRedline = /Proofline\./i.test(fallback.stdout);
+      isRedline = /Stetwise\./i.test(fallback.stdout);
     }
     extensions[ext] = { progId, isRedline };
   }
@@ -95,7 +95,7 @@ function pinnedStatus() {
   if (process.platform !== 'win32') return { supported: false };
   const folder = path.join(appData, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar');
   try {
-    return { supported: true, pinned: require('node:fs').readdirSync(folder).some((name) => /^Proofline.*\.lnk$/i.test(name)) };
+    return { supported: true, pinned: require('node:fs').readdirSync(folder).some((name) => /^Stetwise.*\.lnk$/i.test(name)) };
   } catch { return { supported: true, pinned: false }; }
 }
 

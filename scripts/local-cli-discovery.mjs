@@ -10,7 +10,7 @@ import { invokeDesktop } from './desktop-session.mjs';
 
 const output = path.resolve('test-fixtures/results/local-cli-' + Date.now());
 await mkdir(output, { recursive: true });
-const environment = { ...process.env, MENGX_DEV_URL: '' };
+const environment = { ...process.env, STETWISE_DEV_URL: '' };
 delete environment.ELECTRON_RUN_AS_NODE;
 const mode = process.argv.includes('--registered-path') && process.platform === 'win32' ? 'windows-registered-path' : 'inherited-path';
 if (mode === 'windows-registered-path') {
@@ -27,7 +27,7 @@ try {
   app = await _electron.launch({ args: ['.', '--automation', '--hidden', '--user-data', path.join(output, 'profile'), '--export-directory', output], cwd: process.cwd(), env: environment, timeout: 60000 });
   page = await app.firstWindow();
   page.on('pageerror', error => report.errors.push(error.message));
-  await page.waitForFunction(() => Boolean(window.mengxDesktop && window.prooflineReader), null, { timeout: 30000 });
+  await page.waitForFunction(() => Boolean(window.mengxDesktop && window.stetwiseReader), null, { timeout: 30000 });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.waitForFunction(() => {
     const section = document.querySelector('.setup-step.ai');
@@ -73,12 +73,12 @@ try {
         await page.locator('.review-bar').getByRole('button',{name:'全部接受',exact:true}).click();
         await page.locator('.review-bar .primary-button').click();
         await page.locator('.review-view').waitFor({state:'detached'});
-        await page.waitForFunction(() => !window.prooflineReader.getState().document.dirty && window.prooflineReader.getState().document.saveState.status==='saved');
+        await page.waitForFunction(() => !window.stetwiseReader.getState().document.dirty && window.stetwiseReader.getState().document.saveState.status==='saved');
         assert.equal(await readFile(file,'utf8'),original.replace('10','20'));
         const history = await page.evaluate(() => window.mengxDesktop.agents.history());
         const run = history.find(run => run.documentPath===file);
         assert.ok(run);
-        const snapshot = JSON.parse(await readFile(path.join(output,'profile','ProoflineData','runs',run.id+'.json'),'utf8'));
+        const snapshot = JSON.parse(await readFile(path.join(output,'profile','StetwiseData','runs',run.id+'.json'),'utf8'));
         assert.equal(snapshot.executable,item.path);
         report.edits.push({id:item.id,executable:snapshot.executable,code:snapshot.code,reviewHunks,sourceUnchangedBeforeAcceptance:true,acceptedFileEqualsExpected:true,durationMs:snapshot.finishedAt-snapshot.startedAt});
         await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));

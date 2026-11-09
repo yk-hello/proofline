@@ -26,8 +26,8 @@ jobs:
       - run: npm run test:mac-contracts
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:redline
-      - run: xvfb-run -a npm run test:redline-desktop
+      - run: npm run test:review
+      - run: xvfb-run -a npm run test:review-desktop
   windows:
     runs-on: windows-latest
     steps:
@@ -44,7 +44,7 @@ jobs:
       - run: npm run desktop:pack
       - uses: actions/upload-artifact@v4.6.2
         with:
-          name: proofline-windows-test-build
+          name: stetwise-windows-test-build
           path: release/*.exe
           retention-days: 7
   macos:

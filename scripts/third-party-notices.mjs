@@ -16,8 +16,8 @@ const list = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 const counts = list.reduce((all, item) => ({ ...all, [item.license]: (all[item.license] || 0) + 1 }), {});
 const text = `# Third-party notices
 
-Proofline's own code is under LICENSE (Apache-2.0). The components below are distributed
-with Proofline under their own licenses, which are not changed by Proofline's
+Stetwise's own code is under LICENSE (Apache-2.0). The components below are distributed
+with Stetwise under their own licenses, which are not changed by Stetwise's
 license. Each package's full license text is in its folder under
 node_modules (and in the installed app's resources).
 

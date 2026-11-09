@@ -2,12 +2,12 @@
 
 接口版本 `1.1.0`。UI、页面 API 和 CLI 会话共用阅读器逻辑。调用 `describe()` 可以发现全部方法，`getState()` 可以读取当前状态。API 对象在 React 更新后保持相同身份，适合缓存引用。
 
-产品显示名为 Proofline。`window.prooflineReader` 为推荐入口，`window.mengxReader` 保留为同一对象的兼容别名；旧事件名称和 CLI 命令仍可使用。
+产品显示名为 Stetwise。`window.stetwiseReader` 为推荐入口，`window.mengxReader` 保留为同一对象的兼容别名；旧事件名称和 CLI 命令仍可使用。
 
 ## 页面 API
 
 ```js
-const reader = window.prooflineReader;
+const reader = window.stetwiseReader;
 await reader.openText({ name: '报告.md', path: 'session', content: '# 报告\n\n正文' });
 const hits = await reader.search('正文');
 await reader.goToMatch(0);
@@ -74,9 +74,9 @@ const result = await reader.exportPdf();
 | `updateAnnotation(id, { note?, label? })` / `removeAnnotation(id)` | 修改/删除当前文档的阅读标记 |
 | `goToAnnotation(id)` | 定位并显示阅读标记；锚点丢失返回 `annotation-orphaned` |
 | `undoAnnotation()` / `redoAnnotation()` | 独立的逐文档标注历史：撤销/重做高亮、划线、批注、书签的添加、编辑、删除，保留正文内容；无历史返回 `nothing-to-undo/nothing-to-redo` |
-| `exportAnnotations()` | 保存全部修改指令与个人标记 JSON，不包含在正文导出中；桌面版写入当前 ProoflineData/annotations 并返回 `{ ok, path }`，浏览器下载 JSON |
+| `exportAnnotations()` | 保存全部修改指令与个人标记 JSON，不包含在正文导出中；桌面版写入当前 StetwiseData/annotations 并返回 `{ ok, path }`，浏览器下载 JSON |
 | `getVersions()` / `restoreVersion(id, { expectedRevision }?)` | 读取最近保存版本及恢复草稿摘要；`id: 'draft'` 恢复草稿。恢复是可撤销的新修改，会触发自动保存 |
-| `checkExternalChanges()` / `resolveConflict('reload' / 'overwrite', { expectedRevision }?)` | 检查原文件变化；冲突处理前备份当前草稿和外部版本，随后加载磁盘内容或写回当前内容 |
+| `checkExternalChanges()` / `resolveConflict('reload' / 'overwrite', { expectedRevision }?)` | 检查原文件变化。文档没有未保存的修改时直接加载磁盘内容，返回 `{ followed: true }`，页面顶部显示「被外部修改了」并提供对比和撤销；有未保存修改时标记为冲突。冲突处理前备份当前草稿和外部版本，随后加载磁盘内容或写回当前内容 |
 | `save()` | 写回原始 MD/TXT；没有写入句柄返回 `file-handle-unavailable`，不偷偷改用下载 |
 | `exportMarkdown()` | 导出干净的 Markdown；桌面版选择保存路径，返回 `{ ok, path, bytes }`，浏览器触发下载 |
 | `exportPdf()` | 后台排版并导出 PDF，桌面版写入后返回 `{ ok, path, bytes, pages, stats }`；浏览器返回 `{ ok, name, pages, stats }`。繁忙返回 `busy`，取消返回 `cancelled` |
@@ -89,9 +89,9 @@ const result = await reader.exportPdf();
 
 自动保存约延迟 700ms；切换、失焦和关闭窗口时刷新写入。`replaceContent` 返回表示内容已就绪，使用 `await save()` 等待磁盘完成，或监听 `saveState.status === 'saved' && !dirty`。`conflict` 表示外部内容已变化，应用不会覆盖；可先导出副本保留修改。没有源句柄或不支持原格式时状态为 `session`。撤销有容量限制，不跨程序重启持久化。
 
-标签分别保留草稿、撤销/重做、查找、阅读锁定及滚动位置。桌面端重启恢复原生文件标签、阅读位置、展开章节、搜索和偏好。恢复草稿及保存版本存入 IndexedDB，存储成功后可跨重启手动恢复；撤销历史不跨重启。最近关闭的标签最多保留 5 个会话快照，合计约 32MB。保存版本每篇最多 8 个，通常合计不超过 32MB，至少保留最新版本和待恢复草稿。
+标签分别保留草稿、撤销/重做、查找、阅读锁定及滚动位置。桌面端重启恢复原生文件标签、阅读位置、展开章节、搜索和偏好。恢复草稿及保存版本存入 IndexedDB，存储成功后可跨重启手动恢复；撤销历史不跨重启。最近关闭的标签最多保留 5 个会话快照，合计约 32MB。保存版本每篇最多 30 个（连续的外部写入和一分钟内的自动保存各合并为一个），通常合计不超过 32MB，至少保留最新版本和待恢复草稿。
 
-桌面版修改指令、书签、高亮、划线和批注自动存入安装目录下的 ProoflineData/annotations，Mac 使用应用包旁的 ProoflineData，开发模式使用 .redline-data。写入使用临时文件替换，并保留上一份 .bak；目录不可写时显示错误，可在 AI 工具设置中迁移数据目录。旧文档旁的 .redline.json 及旧版浏览器标记在读取时迁移。网页版继续使用浏览器存储。标记不写入 Markdown，也不出现在正文导出里。跨设备迁移应复制 ProoflineData、文档及其 .assets 目录；同名、同内容且匹配唯一时重新关联标记，其他情况不保证自动关联。恢复草稿、会话和阅读偏好仍属于本机 profile，不在这套 JSON 迁移范围中。定位使用原文摘录与上下文匹配，原文删改导致无法匹配时显示位置失效，每篇最多 1000 条。完整接入和迁移说明见 [CLI_INTEGRATION.md](CLI_INTEGRATION.md)。
+桌面版修改指令、书签、高亮、划线和批注自动存入安装目录下的 StetwiseData/annotations，Mac 使用应用包旁的 StetwiseData，开发模式使用 .stetwise-data。写入使用临时文件替换，并保留上一份 .bak；目录不可写时显示错误，可在 AI 工具设置中迁移数据目录。旧文档旁的 .stetwise.json、.redline.json 及旧版浏览器标记在读取时迁移。网页版继续使用浏览器存储。标记不写入 Markdown，也不出现在正文导出里。跨设备迁移应复制 StetwiseData、文档及其 .assets 目录；同名、同内容且匹配唯一时重新关联标记，其他情况不保证自动关联。恢复草稿、会话和阅读偏好仍属于本机 profile，不在这套 JSON 迁移范围中。定位使用原文摘录与上下文匹配，原文删改导致无法匹配时显示位置失效，每篇最多 1000 条。完整接入和迁移说明见 [CLI_INTEGRATION.md](CLI_INTEGRATION.md)。
 
 错误码以 `describe().errors` 为准。常用错误包括 `reading-locked`、`revision-conflict`、`file-conflict`、`permission-denied`、`write-failed`、`invalid-regex`、`unsafe-regex`、`cancelled`。页面异常、事件桥和 CLI 都保留相同 `code`，业务失败保留原始 `error` 和结果对象。正则按行匹配，不支持跨行模式；为控制性能风险拒绝部分嵌套重复和回溯语法。
 
@@ -132,7 +132,7 @@ npm run build
 node scripts/reader-cli.mjs session --desktop --output test-fixtures/results/desktop-automation
 ```
 
-AI 进程可使用 Node/Python 的子进程 API，与 CLI 标准输入/输出交换 JSON Lines。直接调用 `node` 可避免 npm 的额外日志。桌面会话使用构建后的独立窗口，无需服务或点击 UI；`--visible` 显示窗口，`--profile <目录>` 保留偏好/历史。测试已生成的打包版时增加 `--executable "release/win-unpacked/Proofline.exe"`。
+AI 进程可使用 Node/Python 的子进程 API，与 CLI 标准输入/输出交换 JSON Lines。直接调用 `node` 可避免 npm 的额外日志。桌面会话使用构建后的独立窗口，无需服务或点击 UI；`--visible` 显示窗口，`--profile <目录>` 保留偏好/历史。测试已生成的打包版时增加 `--executable "release/win-unpacked/Stetwise.exe"`。
 
 省略 `--desktop` 会启动独立 Edge，此时需要开发服务；`READER_URL` 默认 `http://127.0.0.1:5173/`，`EDGE_PATH` 可自定义 Edge/Chromium 可执行文件。独立会话不控制用户现有窗口。
 

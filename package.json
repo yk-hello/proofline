@@ -1,11 +1,11 @@
 {
-  "name": "proofline",
+  "name": "stetwise",
   "private": true,
   "license": "Apache-2.0",
   "version": "0.5.0",
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "Proofline — review AI-written documents: read, mark, hand to your AI, review every change",
+  "description": "Stetwise — review AI-written documents: read, mark, hand to your AI, review every change",
   "author": "Zhang YK <hello.yk.zhang@gmail.com>",
   "scripts": {
     "dev": "vite",
@@ -26,23 +26,23 @@
     "test:reader": "node scripts/reader-smoke.mjs",
     "test:api": "node scripts/reader-api-smoke.mjs",
     "test:long": "node scripts/reader-long-smoke.mjs",
-    "test:core": "node scripts/redline-core.test.mjs",
-    "test:redline": "node scripts/redline-smoke.mjs",
+    "test:core": "node scripts/review-core.test.mjs",
+    "test:review": "node scripts/review-smoke.mjs",
     "test:ui": "node scripts/ui-regressions-smoke.mjs",
     "test:charts": "node scripts/charts-tables-smoke.mjs",
     "test:word": "node scripts/word-smoke.mjs",
     "desktop:pack:mac": "npm run build && electron-builder --mac --universal --publish never",
     "test:integration": "node scripts/agents-storage.test.mjs",
     "test:adapters": "node scripts/cli-adapters.test.mjs",
-    "test:redline-desktop": "node scripts/redline-desktop.test.mjs",
+    "test:review-desktop": "node scripts/review-desktop.test.mjs",
     "test:mac-contracts": "node scripts/mac-contracts.test.mjs",
     "test:mac-host": "node scripts/mac-verify.mjs",
     "test:probe": "node scripts/cli-probe.test.mjs",
     "test:local-cli": "node scripts/local-cli-discovery.mjs"
   },
   "build": {
-    "appId": "app.proofline.desktop",
-    "productName": "Proofline",
+    "appId": "app.stetwise.desktop",
+    "productName": "Stetwise",
     "afterPack": "scripts/after-pack.cjs",
     "directories": {
       "output": "release"
@@ -50,7 +50,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "build/redline.ico",
+      "build/icon.ico",
       "build/icon.png",
       "package.json",
       "!node_modules/**/*"
@@ -63,8 +63,8 @@
         "nsis"
       ],
       "signAndEditExecutable": false,
-      "icon": "build/redline.ico",
-      "artifactName": "Proofline-${version}-Windows-${arch}.${ext}"
+      "icon": "build/icon.ico",
+      "artifactName": "Stetwise-${version}-Windows-${arch}.${ext}"
     },
     "portable": {
       "requestExecutionLevel": "user"
@@ -82,13 +82,13 @@
       "language": 2052,
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "installerIcon": "build/redline.ico",
-      "uninstallerIcon": "build/redline.ico",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "include": "build/installer.nsh",
-      "artifactName": "Proofline-${version}-Setup-${arch}.${ext}"
+      "artifactName": "Stetwise-${version}-Setup-${arch}.${ext}"
     },
     "asarUnpack": [
-      "electron/redline-core.mjs"
+      "electron/review-core.mjs"
     ],
     "mac": {
       "target": [
@@ -97,7 +97,7 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
-      "artifactName": "Proofline-${version}-mac-${arch}.${ext}",
+      "artifactName": "Stetwise-${version}-mac-${arch}.${ext}",
       "identity": null,
       "hardenedRuntime": false,
       "fileAssociations": [

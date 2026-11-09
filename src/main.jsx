@@ -10,27 +10,29 @@ import { desktopHandle, chooseDesktopFile, chooseDesktopDirectory, restoreDeskto
 import { VirtualList } from './VirtualList';
 import { useReaderApi, waitForReader, pageOf, API_VERSION } from './use-reader-api';
 import { createTextAnchor, resolveTextAnchor, captureReadingSelection, findRenderedAnchor, paintReadingHighlights, clearReadingHighlights, hitTestMarks } from './reading-annotations';
-import { markStore, isRedline, numberRedlines, MARK_TYPES, REDLINE_STATUS, serializeSidecar } from './redline/marks';
-import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors, hiddenContent } from '../electron/redline-core.mjs';
-import { t as rt, typeLabel } from './redline/copy';
-import { readAgentSettings, restoreAgentSettings } from './redline/agents';
-import MarkPopover from './redline/MarkPopover';
-import RedlineRail from './redline/RedlineRail';
-import SendDialog from './redline/SendDialog';
-import ManualTransfer from './redline/ManualTransfer';
-import ReviewView from './redline/ReviewView';
-import RunPanel from './redline/RunPanel';
-import AgentSettings from './redline/AgentSettings';
-import MarkdownEditor from './redline/MarkdownEditor';
-import { editableParts, partAt } from './redline/sections';
-import SetupWizard from './redline/SetupWizard';
+import { markStore, isRedline, numberRedlines, MARK_TYPES, REDLINE_STATUS, serializeSidecar } from './review/marks';
+import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors, hiddenContent, diffBlocks, rebaseChanges, positionHint, anchorOpen, anchorClose, tasksForHunk } from '../electron/review-core.mjs';
+import { t as rt, typeLabel } from './review/copy';
+import { readAgentSettings, restoreAgentSettings } from './review/agents';
+import MarkPopover from './review/MarkPopover';
+import InstructionRail from './review/InstructionRail';
+import SendDialog from './review/SendDialog';
+import ManualTransfer from './review/ManualTransfer';
+import ReviewView from './review/ReviewView';
+import RunPanel from './review/RunPanel';
+import AgentSettings from './review/AgentSettings';
+import MarkdownEditor from './review/MarkdownEditor';
+import { editableParts, partAt } from './review/sections';
+import SetupWizard from './review/SetupWizard';
+import HistoryPanel from './review/HistoryPanel';
+import CommandPalette from './review/CommandPalette';
 import { findMathMatches } from './math-matches';
 import { DEFAULT_SEARCH_OPTIONS, normalizeSearchOptions, searchExpression, textMatches } from './search';
 import { findEditorMatches, paintEditorMatches, clearEditorMatches, revealRange } from './editor-search';
 import { hydrateWidgets } from './charts';
 import { enhanceTables, sortTable, totalRowMarkdown, appendTableRow, documentStats } from './table-tools';
-import StatsDialog from './redline/StatsDialog';
-import { getRecovery, storeRecovery, recoveryVersions } from './document-recovery';
+import StatsDialog from './review/StatsDialog';
+import { getRecovery, storeRecovery, recoveryVersions, storePendingReview, versionSource } from './document-recovery';
 import ImageViewer from './ImageViewer';
 import {
   AlignLeft,
@@ -97,8 +99,8 @@ function isNativePath(value) {
 }
 
 function App() {
-  const initialKey = documentCacheKey('欢迎使用 Proofline.md', 'Proofline / 示例');
-  const [tabs, setTabs] = useState([{ id: initialKey, name: '欢迎使用 Proofline.md', path: 'Proofline / 示例', kind: 'MD' }]);
+  const initialKey = documentCacheKey('欢迎使用 Stetwise.md', 'Stetwise / 示例');
+  const [tabs, setTabs] = useState([{ id: initialKey, name: '欢迎使用 Stetwise.md', path: 'Stetwise / 示例', kind: 'MD' }]);
   const tabsRef = useRef(tabs);
   const tabSessionsRef = useRef(new Map());
   const closedTabsRef = useRef([]);
@@ -111,7 +113,22 @@ function App() {
   const navigatingHistoryRef = useRef(false);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const [railMode, setRailMode] = useState('redlines');
-  const [sideMode, setSideMode] = useState(() => localStorage.getItem('redline-side-mode') === 'files' ? 'files' : 'contents');
+  const [sideMode, setSideMode] = useState(() => ['files', 'history'].includes(localStorage.getItem('redline-side-mode')) ? localStorage.getItem('redline-side-mode') : 'contents');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // Light, dark, or whatever the system uses.
+  const [theme, setTheme] = useState(() => { try { const value = localStorage.getItem('stetwise-theme'); return ['light', 'dark', 'system'].includes(value) ? value : 'system'; } catch { return 'system'; } });
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const dark = theme === 'dark' || (theme === 'system' && Boolean(media?.matches));
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      void window.mengxDesktop?.setTheme?.(theme)?.catch?.(() => {});
+    };
+    apply();
+    try { localStorage.setItem('stetwise-theme', theme); } catch { /* optional */ }
+    media?.addEventListener?.('change', apply);
+    return () => media?.removeEventListener?.('change', apply);
+  }, [theme]);
   const [markPopover, setMarkPopover] = useState(null);
   const [undoToast, setUndoToast] = useState(null);
   const [sendOpen, setSendOpen] = useState(false);
@@ -132,6 +149,17 @@ function App() {
     }).catch((error) => setNotice(error.message));
   }, []);
   const reviewRef = useRef(null);
+  // The last change applied to the document as a whole (outside program, review, revert):
+  // shown as a bar with Compare and Undo, which also work in reading mode.
+  const [round, setRound] = useState(null);
+  const roundRef = useRef(null);
+  const [pendingReview, setPendingReview] = useState(null);
+  const reviewProgressTimerRef = useRef(null);
+  const [compareView, setCompareView] = useState(null);
+  const flashTimerRef = useRef(null);
+  const [actionToast, setActionToast] = useState(null);
+  const [pdfOptions, setPdfOptions] = useState(null);
+  const agentEventsRef = useRef({});
   const [editorKey, setEditorKey] = useState(0);
   const [richPart, setRichPart] = useState(null);
   const richPartRef = useRef(null);
@@ -153,8 +181,8 @@ function App() {
   const [annotationLabelDraft, setAnnotationLabelDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
   const [markdown, setMarkdown] = useState(DEMO_DOCUMENT);
-  const [fileName, setFileName] = useState('欢迎使用 Proofline.md');
-  const [fileMeta, setFileMeta] = useState({ size: 4820, source: 'Proofline / 示例', updated: 'just-now', kind: 'MD' });
+  const [fileName, setFileName] = useState('欢迎使用 Stetwise.md');
+  const [fileMeta, setFileMeta] = useState({ size: 4820, source: 'Stetwise / 示例', updated: 'just-now', kind: 'MD' });
   const [recentFiles, setRecentFiles] = useState(INITIAL_RECENTS);
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [language, setLanguage] = useState(() => window.localStorage.getItem('morrow-language') || 'zh');
@@ -211,7 +239,7 @@ function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [readingWidth, setReadingWidth] = useState(() => window.localStorage.getItem('morrow-reading-width') || 'comfortable');
-  const [readingPreferences, setReadingPreferences] = useState(() => readReadingPreferences('欢迎使用 Proofline.md'));
+  const [readingPreferences, setReadingPreferences] = useState(() => readReadingPreferences('欢迎使用 Stetwise.md'));
   const [focusMode, setFocusMode] = useState(() => window.localStorage.getItem('mengx-focus-reading') === 'true');
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [locationDraft, setLocationDraft] = useState('');
@@ -259,7 +287,7 @@ function App() {
   const fileHandlesRef = useRef(new Map());
   const directoryHandleRef = useRef(null);
   const fileContentsRef = useRef(new Map([
-    [normalizeResourceKey('欢迎使用 Proofline.md'), DEMO_DOCUMENT],
+    [normalizeResourceKey('欢迎使用 Stetwise.md'), DEMO_DOCUMENT],
     [normalizeResourceKey('安静的界面设计.md'), DEMO_DOCUMENT],
     [normalizeResourceKey('发布说明.md'), REFERENCE_RELEASE],
     [normalizeResourceKey('阅读器架构.txt'), REFERENCE_DOCUMENT],
@@ -302,7 +330,7 @@ function App() {
   writerChangeRef.current = (key, state) => {
     const latest = (editVersionsRef.current.get(key) || 0) === state.version;
     if (state.status === 'saved') {
-      void storeRecovery(key, state.source, { saved: true }).catch(() => setNotice(language === 'zh' ? '版本备份未完成；原文件已保存' : 'Source saved; version backup unavailable'));
+      void storeRecovery(key, state.source, { saved: true, coalesceMs: 60000 }).catch(() => setNotice(language === 'zh' ? '版本备份未完成；原文件已保存' : 'Source saved; version backup unavailable'));
       fileContentsRef.current.set(key, state.source);
       if (latest) dirtyDocumentsRef.current.delete(key);
     }
@@ -336,12 +364,13 @@ function App() {
       externalMetadataRef.current.set(key, stamp);
       const changed = baseline !== undefined && disk !== baseline;
       const run = agentRunRef.current;
-      if (changed && run?.key === key && run.scope === 'folder') {
-        // An agent is editing the original file: review its result instead of reporting a conflict.
-        if (run.status === 'waiting' && !reviewRef.current) {
-          openReview({ key, base: run.base, proposed: (await normalizeImportedFile(await handle.getFile())).content, tasks: run.tasks, answers: new Map(), sourceLabel: run.agent.name, diskBaseline: disk, origin: 'agent' });
-        }
-        return { ok: true, changed, agent: true };
+      // An agent run in folder scope edits the original file; its result is reviewed when it finishes.
+      if (changed && run?.key === key && run.scope === 'folder' && ['starting', 'running'].includes(run.status)) return { ok: true, changed, agent: true };
+      if (changed) editorRef.current?.flush();
+      if (changed && isDocumentClean(key) && !reviewRef.current) {
+        // Nothing unsaved here: follow the file. The bar offers Compare and Undo.
+        followExternalChange(key, handle, disk);
+        return { ok: true, changed, followed: true };
       }
       if (changed) writer.change(key, { status: 'conflict', version: editVersionsRef.current.get(key) || 0, error: 'external-file-change' });
       return { ok: true, changed };
@@ -361,7 +390,7 @@ function App() {
 
   useEffect(() => markStore.subscribe((key) => { if (key === activeDocumentRef.current.key) setAnnotationVersion((value) => value + 1); }), []);
   useEffect(() => {
-    // Agents and the MCP server may update the sidecar while Proofline is open.
+    // Agents and the MCP server may update the sidecar while Stetwise is open.
     const reload = () => { if (document.visibilityState !== 'hidden' && activeDocumentRef.current.key) void markStore.reload(activeDocumentRef.current.key); };
     window.addEventListener('focus', reload);
     return () => window.removeEventListener('focus', reload);
@@ -647,8 +676,12 @@ function App() {
       ...current.filter((item) => item.name !== name || item.path !== displayPath).map((item) => ({ ...item, active: false })),
     ].slice(0, 8));
     setNotice(`${name} ${copy.opened}`);
-    setRecoveryAvailable(false);
-    void getRecovery(key).then((record) => { if (activeDocumentRef.current.key === key) setRecoveryAvailable(Boolean(record.draft && record.draft.source !== text)); }).catch(() => {});
+    setRecoveryAvailable(false); setPendingReview(null);
+    void getRecovery(key).then((record) => {
+      if (activeDocumentRef.current.key !== key) return;
+      setRecoveryAvailable(Boolean(record.draft && record.draft.source !== text));
+      if (record.review && (record.review.base === text || record.review.diskBaseline === text)) setPendingReview({ key, ...record.review });
+    }).catch(() => {});
     return { name, path: displayPath, kind: normalizedKind, size: byteSize, revision: documentRevisionRef.current };
   }
 
@@ -884,7 +917,7 @@ function App() {
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
       requestAnimationFrame(() => document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })));
     };
-    area.addEventListener('proofline:select-component', selectComponent);
+    area.addEventListener('stetwise:select-component', selectComponent);
     const onTableClick = (event) => {
       const insert = event.target.closest?.('.pl-insert-total');
       if (insert) { event.preventDefault(); event.stopPropagation(); tableActionsRef.current?.insertTotal(insert.closest('table')); return; }
@@ -892,7 +925,7 @@ function App() {
       if (header && !window.getSelection()?.toString() && header.closest('.reading-column, .reference-column')) sortTable(header.closest('table'), Number(header.dataset.plColumn));
     };
     area.addEventListener('click', onTableClick, true);
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); area.removeEventListener('proofline:select-component', selectComponent); area.removeEventListener('click', onTableClick, true); };
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); area.removeEventListener('stetwise:select-component', selectComponent); area.removeEventListener('click', onTableClick, true); };
   }, [language]);
 
   useEffect(() => {
@@ -1395,6 +1428,12 @@ function App() {
   }, [undoToast]);
 
   useEffect(() => {
+    if (!actionToast) return undefined;
+    const timer = window.setTimeout(() => setActionToast(null), 9000);
+    return () => window.clearTimeout(timer);
+  }, [actionToast]);
+
+  useEffect(() => {
     if (!notice) return undefined;
     const timer = window.setTimeout(() => setNotice(''), 3000);
     return () => window.clearTimeout(timer);
@@ -1445,6 +1484,8 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'k' && !sendOpen && !agentSettingsOpen && !setupOpen) { event.preventDefault(); setPaletteOpen((value) => !value); return; }
+      if (paletteOpen) return;
       if (reviewRef.current || sendOpen || agentSettingsOpen || setupOpen) return;
       const typing = event.target.closest?.('input, textarea, select, [contenteditable="true"], .ProseMirror');
       if (markPopover && !typing && ['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); removeAnnotation(markPopover.id); return; }
@@ -1531,12 +1572,12 @@ function App() {
   async function normalizeImportedFile(file) {
     const name = file.name || '';
     if (/\.docx$/i.test(name)) {
-      // Word charts keep their data; turn each into a Proofline chart (see docx-charts.js).
-      const { extractDocxCharts, insertCharts, restoreProoflineObjects } = await import('./docx-charts');
+      // Word charts keep their data; turn each into a Stetwise chart (see docx-charts.js).
+      const { extractDocxCharts, insertCharts, restoreStetwiseObjects } = await import('./docx-charts');
       const original = await file.arrayBuffer();
       const extracted = await extractDocxCharts(original, language).catch(() => ({ buffer: original, charts: [] }));
       const result = await mammoth.convertToHtml({ arrayBuffer: extracted.buffer });
-      return { content: restoreProoflineObjects(insertCharts(htmlDocumentToMarkdown(result.value), extracted.charts)), kind: 'DOCX' };
+      return { content: restoreStetwiseObjects(insertCharts(htmlDocumentToMarkdown(result.value), extracted.charts)), kind: 'DOCX' };
     }
     if (/\.html?$/i.test(name)) {
       return { content: htmlDocumentToMarkdown(await file.text()), kind: 'HTML' };
@@ -1990,11 +2031,10 @@ function App() {
     if (key !== activeDocumentRef.current.key || revision !== documentRevisionRef.current) throw Object.assign(new Error('Document changed while loading a version'), { code: 'revision-conflict' });
     const version = id === 'draft' ? record.draft : record.versions.find((entry) => entry.id === id);
     if (!version) throw new RangeError('Recovery version not found');
-    setReadingMode(false);
-    // Restore as a new edit so Undo can return to the current content.
-    getEditHistory().record(captureEditSnapshot());
-    draftHtmlRef.current = null; chunkDraftsRef.current.clear(); editorDraftRef.current = null; resetRichEditor(); sourceBaseRef.current = version.source;
-    setMarkdown(version.source); lastEditSnapshotRef.current = captureEditSnapshot(); markCurrentEdited();
+    // Restore as a new edit; the bar offers Undo even in reading mode.
+    const previous = getDocumentSource(), statuses = markSnapshot(key);
+    applySource(version.source);
+    showRound({ kind: 'version', key, previous, next: version.source, count: countChanges(previous, version.source), at: Date.now(), statuses });
     setVersionDialog(null); setRecoveryAvailable(false);
     return { ok: true, revision: documentRevisionRef.current };
   }
@@ -2007,7 +2047,8 @@ function App() {
     const revision = documentRevisionRef.current;
     await writerRef.current.jobs.get(key);
     const disk = (await normalizeImportedFile(await handle.getFile())).content;
-    await storeRecovery(key, getDocumentSource());
+    const hadUnsaved = !savedRef.current;
+    await storeRecovery(key, getDocumentSource(), hadUnsaved ? undefined : { saved: true, reason: 'before-external' });
     if (activeDocumentRef.current.key !== key || revision !== documentRevisionRef.current) throw Object.assign(new Error('Document changed while resolving conflict'), { code: 'revision-conflict' });
     await storeRecovery(key, disk, { saved: true, reason: 'external-version' });
     if (activeDocumentRef.current.key !== key || revision !== documentRevisionRef.current) throw Object.assign(new Error('Document changed while resolving conflict'), { code: 'revision-conflict' });
@@ -2019,7 +2060,7 @@ function App() {
       documentRevisionRef.current++; lastEditSnapshotRef.current = captureEditSnapshot();
       dirtyDocumentsRef.current.delete(key); setDirtyMarkers(true); setSaveState({ status: 'saved' }); setHistoryVersion((v) => v + 1);
       setFileMeta((meta) => ({ ...meta, size: new Blob([disk]).size, updated: 'just-now' }));
-      setRecoveryAvailable(true);
+      setRecoveryAvailable(hadUnsaved);
       return { ok: true, revision: documentRevisionRef.current };
     }
     if (action === 'overwrite') return saveCurrentFile();
@@ -2034,6 +2075,186 @@ function App() {
       else setNotice(result.error || copy.saveFailed);
     } catch (error) { setNotice(error.message); }
     finally { setConflictBusy(false); }
+  }
+
+  // ---------- Rounds: follow outside changes, compare, undo a whole change ----------
+  function isDocumentClean(key) {
+    // Open editors are fine: once saved they hold nothing the file lacks, and they reload with the new text.
+    return activeDocumentRef.current.key === key && savedRef.current && !dirtyDocumentsRef.current.has(key) && !writerRef.current.jobs.has(key) && !autoSaveTimerRef.current;
+  }
+
+  function markSnapshot(key) { return markStore.get(key).filter((item) => isRedline(item.type)).map(({ id, status, question, answer }) => ({ id, status, question, answer })); }
+  function restoreMarkSnapshot(key, snapshot = []) {
+    const byId = new Map(snapshot.map((item) => [item.id, item]));
+    setMarkStatuses(new Map(markStore.get(key).filter((item) => byId.has(item.id)).map((item) => { const { status, question, answer } = byId.get(item.id); return [item.id, { status, question, answer }]; })), key);
+  }
+  function countChanges(before, after) { try { return diffBlocks(before, after).hunks.filter((hunk) => hunk.type === 'change').length; } catch { return 0; } }
+  function showRound(next) { roundRef.current = next; setRound(next); }
+  // Session documents (samples, imports, the web) are not written to a file by themselves.
+  function savesItself() { return fileHandlesRef.current.has(activeDocumentRef.current.key) && ['MD', 'TXT'].includes(activeDocumentRef.current.kind); }
+  function savedHint() { return savesItself() ? (language === 'zh' ? '，会自动保存' : '; saving') : (language === 'zh' ? '。这篇是会话文档，记得导出保存' : '. This is a session document; export it to keep it'); }
+
+  /** Briefly highlight the paragraphs that just changed. */
+  function flashChanges(before, after) {
+    if (!globalThis.CSS?.highlights || !globalThis.Highlight) return;
+    let diff; try { diff = diffBlocks(before, after); } catch { return; }
+    const blocks = diff.hunks.filter((hunk) => hunk.type === 'change').flatMap((hunk) => hunk.next.map((index) => diff.nextBlocks[index])).slice(0, 40);
+    if (!blocks.length) return;
+    window.clearTimeout(flashTimerRef.current);
+    void waitForReader((api) => api.getState().document.ready).then(() => window.requestAnimationFrame(() => {
+      const ranges = [];
+      for (const block of blocks) {
+        const holder = document.createElement('div');
+        holder.innerHTML = safeMarkdown(block.text, '', () => '');
+        const text = holder.textContent.trim().split('\n')[0].trim();
+        if (!text) continue;
+        const range = findRenderedAnchor(articleRef.current, { text, sourceOffset: block.start, displayPrefix: '', displaySuffix: '' }, documentAnalysis.chunks);
+        if (range) ranges.push(range);
+      }
+      CSS.highlights.set('rl-external', new Highlight(...ranges));
+      flashTimerRef.current = window.setTimeout(() => CSS.highlights.delete('rl-external'), 6000);
+    })).catch(() => {});
+  }
+
+  /** The file changed on disk and nothing here is unsaved: show the new version. */
+  function followExternalChange(key, handle, disk) {
+    const previous = getDocumentSource(), current = roundRef.current;
+    // Consecutive writes extend one round, so Compare shows everything since you last looked.
+    const extend = current && current.key === key && current.kind === 'external' && !current.undone && current.next === previous;
+    const since = extend ? current.previous : previous;
+    void storeRecovery(key, previous, { saved: true, reason: 'before-external' }).then(() => storeRecovery(key, disk, { saved: true, reason: 'external', coalesceMs: 15000 })).catch(() => {});
+    writerRef.current.register(key, handle, disk);
+    getEditHistory().record(captureEditSnapshot());
+    sourceBaseRef.current = disk; draftHtmlRef.current = null; chunkDraftsRef.current.clear(); editorDraftRef.current = null; resetRichEditor();
+    setMarkdown(disk); fileContentsRef.current.set(key, disk);
+    documentRevisionRef.current += 1;
+    dirtyDocumentsRef.current.delete(key); setDirtyMarkers(true); setSaveState({ status: 'saved' }); setHistoryVersion((value) => value + 1);
+    setFileMeta((meta) => ({ ...meta, size: new Blob([disk]).size, updated: 'just-now' }));
+    lastEditSnapshotRef.current = captureEditSnapshot();
+    const statuses = extend ? current.statuses : markSnapshot(key);
+    // Instructions whose text is gone were acted on; Undo puts their status back.
+    const gone = new Map(markStore.get(key).filter((item) => isRedline(item.type) && ['open', 'sent'].includes(item.status || 'open') && !item.anchor?.document && resolveTextAnchor(disk, item.anchor).orphaned).map((item) => [item.id, { status: 'resolved' }]));
+    if (gone.size) setMarkStatuses(gone, key);
+    showRound({ kind: 'external', key, previous: since, next: disk, count: countChanges(since, disk), writes: (extend ? current.writes : 0) + 1, at: Date.now(), since: extend ? current.since : Date.now(), statuses });
+    setCompareView((view) => view && view.key === key && view.follow ? { ...view, proposed: disk, id: Date.now() } : view);
+    flashChanges(previous, disk);
+  }
+
+  function openCompare({ base, proposed, label, readOnly = false, follow = false }) {
+    if (!readingMode) commitInlineEdit({ notify: false });
+    setMarkPopover(null);
+    setCompareView({ key: activeDocumentRef.current.key, mode: 'compare', origin: 'compare', base, proposed, sourceLabel: label, readOnly, follow, tasks: [], answers: new Map(), id: Date.now() });
+  }
+
+  function compareRound() {
+    const current = roundRef.current;
+    if (!current || current.key !== activeDocumentRef.current.key) return;
+    const since = new Date(current.kind === 'external' && current.since ? current.since : current.at).toLocaleTimeString();
+    const label = current.kind === 'external' ? (language === 'zh' ? `外部程序 · ${since} 以来` : `another program · since ${since}`) : current.kind === 'review' ? current.source : roundLabel(current);
+    openCompare({ base: current.previous, proposed: getDocumentSource(), label, follow: current.kind === 'external' });
+  }
+
+  function revertFromCompare(final) {
+    const view = compareView;
+    if (!view) return;
+    const previous = getDocumentSource();
+    if (previous !== view.proposed) { setNotice(language === 'zh' ? '文档在对比期间又变了，请重新打开对比' : 'The document changed meanwhile; open Compare again'); setCompareView(null); return; }
+    const statuses = markSnapshot(view.key);
+    applySource(final);
+    const count = countChanges(previous, final);
+    showRound({ kind: 'revert', key: view.key, previous, next: final, count, at: Date.now(), statuses });
+    setCompareView(null);
+    setNotice((language === 'zh' ? `已改回 ${count} 处` : `Put back ${count} change${count === 1 ? '' : 's'}`) + savedHint());
+  }
+
+  function undoRound() {
+    const current = roundRef.current;
+    if (!current || current.undone || current.key !== activeDocumentRef.current.key) return;
+    if (getDocumentSource() !== current.next) { setNotice(language === 'zh' ? '这之后文档又改过，不能整轮撤销；可以点「对比」逐处改回。' : 'The document changed since; use Compare to put back individual changes.'); return; }
+    const after = markSnapshot(current.key);
+    applySource(current.previous);
+    restoreMarkSnapshot(current.key, current.statuses);
+    showRound({ ...current, undone: true, statusesAfter: after, at: Date.now() });
+    setNotice(current.kind === 'external'
+      ? (language === 'zh' ? '已撤销，正在写回文件。如果外部程序还在改这个文件，它之后的写入会再次显示在这里。' : 'Undone and saving. If the other program is still editing, its next write will show here again.')
+      : (language === 'zh' ? '已撤销' : 'Undone') + savedHint());
+  }
+
+  function redoRound() {
+    const current = roundRef.current;
+    if (!current?.undone || current.key !== activeDocumentRef.current.key) return;
+    if (getDocumentSource() !== current.previous) { setNotice(language === 'zh' ? '这之后文档又改过，不能恢复这次修改' : 'The document changed since; cannot redo'); return; }
+    applySource(current.next);
+    if (current.statusesAfter) restoreMarkSnapshot(current.key, current.statusesAfter);
+    showRound({ ...current, undone: false, at: Date.now() });
+  }
+
+  function roundLabel(current) {
+    const zh = language === 'zh';
+    if (current.kind === 'external') return zh ? '被外部修改了' : 'Changed outside';
+    if (current.kind === 'review' && current.origin === 'external') return zh ? '已合并外部修改' : 'Merged outside changes';
+    if (current.kind === 'review' && !current.count) return zh ? '审阅完成，没有写入修改' : 'Review finished; nothing written';
+    if (current.kind === 'review') return zh ? `已写入 ${current.source} 的修改` : `Applied changes from ${current.source}`;
+    if (current.kind === 'version') return zh ? '已恢复历史版本' : 'Restored a saved version';
+    return zh ? '已改回' : 'Put back';
+  }
+
+  function serializeReview(value) {
+    return { ...value, answers: [...(value.answers || new Map())], questions: [...(value.questions || new Map())] };
+  }
+  function reviveReview(value) {
+    return { ...value, answers: new Map(value.answers || []), questions: new Map(value.questions || []) };
+  }
+  function rememberReviewProgress(progress) {
+    const current = reviewRef.current;
+    if (!current || !['agent', 'reply', 'external'].includes(current.origin)) return;
+    current.progress = progress;
+    window.clearTimeout(reviewProgressTimerRef.current);
+    reviewProgressTimerRef.current = window.setTimeout(() => { void storePendingReview(current.key, serializeReview(current)).catch(() => {}); }, 500);
+  }
+
+  async function compareVersion(id) {
+    const key = activeDocumentRef.current.key;
+    const source = await versionSource(key, id);
+    if (source === null) { setNotice(language === 'zh' ? '找不到这个版本' : 'Version not found'); return; }
+    const entry = (await recoveryVersions(key)).versions.find((item) => item.id === id);
+    setVersionDialog(null);
+    openCompare({ base: source, proposed: getDocumentSource(), label: language === 'zh' ? `${entry ? new Date(entry.at).toLocaleString() : ''} 的版本 → 现在` : `Version from ${entry ? new Date(entry.at).toLocaleString() : ''} → now` });
+  }
+
+  function paletteCommands() {
+    const zh = language === 'zh', has = tabs.length > 0, g = { file: zh ? '文件' : 'File', ai: 'AI', view: zh ? '视图' : 'View', export: zh ? '导出' : 'Export', history: zh ? '历史' : 'History', app: zh ? '设置' : 'Settings' };
+    const items = [
+      { id: 'open', group: g.file, label: zh ? '打开文档' : 'Open document', shortcut: `${mod} O`, run: () => void openFilePicker() },
+      { id: 'folder', group: g.file, label: zh ? '打开文件夹' : 'Open folder', run: () => void openFolderPicker() },
+      { id: 'path', group: g.file, label: zh ? '按路径打开' : 'Open by path', shortcut: `${mod} L`, run: () => setPathOpen(true) },
+      { id: 'find-file', group: g.file, label: zh ? '在文件夹里找文档' : 'Find a document in the folder', shortcut: `${mod} P`, run: () => { setSidebarOpen(true); setSideMode('files'); window.requestAnimationFrame(() => quickInputRef.current?.focus()); } },
+      { id: 'send', group: g.ai, label: zh ? '交给 AI 修改' : 'Send to AI', shortcut: `${mod} ↵`, disabled: !has, run: () => openSendDialog() },
+      { id: 'whole', group: g.ai, label: zh ? '全文指令' : 'Whole-document instruction', disabled: !has, keywords: 'instruction', run: () => { const created = addAnnotation('free', { anchor: { text: '', rawQuote: '', document: true, sourceOffset: 0, sourceEnd: 0 }, label: zh ? '全文' : 'Whole document' }); openMarkPopover(created.id, null, { focus: true }); } },
+      { id: 'agents', group: g.ai, label: zh ? 'AI 工具设置' : 'AI tools', run: () => setAgentSettingsOpen(true) },
+      { id: 'find', group: g.view, label: zh ? '在文档中查找' : 'Find in document', shortcut: `${mod} F`, disabled: !has, run: () => openSearch() },
+      { id: 'mode', group: g.view, label: readingMode ? (zh ? '切换到编辑' : 'Switch to editing') : (zh ? '切换到阅读' : 'Switch to reading'), disabled: !has, run: () => toggleReadingMode() },
+      { id: 'source', group: g.view, label: sourceView ? (zh ? '返回排版视图' : 'Formatted view') : (zh ? '查看 Markdown 源文件' : 'View Markdown source'), disabled: !has, run: () => void changeSourceView(!sourceView) },
+      { id: 'split', group: g.view, label: splitView ? (zh ? '关闭并排阅读' : 'Close side by side') : (zh ? '并排阅读' : 'Side by side'), disabled: !has, run: () => (splitView ? closeSplit() : void openReferencePicker()) },
+      { id: 'focus', group: g.view, label: zh ? '专注阅读' : 'Focus reading', shortcut: 'F9', disabled: !has, run: () => changeFocusMode(!focusMode) },
+      { id: 'stats', group: g.view, label: zh ? '文档统计' : 'Document statistics', disabled: !has, run: () => setStatsOpen(true) },
+      { id: 'history', group: g.history, label: zh ? '版本历史' : 'Version history', disabled: !has, run: () => { setSidebarOpen(true); setSideMode('history'); } },
+      { id: 'compare-last', group: g.history, label: zh ? '对比最近一次修改' : 'Compare the latest change', disabled: !has, run: () => void latestChangeBase().then((found) => found ? openCompare({ base: found.base, proposed: getDocumentSource(), label: found.label }) : setNotice(zh ? '还没有 AI 修改或外部修改的记录' : 'No AI or outside change recorded yet')) },
+      { id: 'md', group: g.export, label: zh ? '导出 Markdown' : 'Export Markdown', disabled: !has, run: () => void exportDraft() },
+      { id: 'pdf', group: g.export, label: zh ? '保存 PDF' : 'Save PDF', disabled: !has || Boolean(pdfProgress), run: () => setPdfOptions(readPdfOptions()) },
+      { id: 'word', group: g.export, label: zh ? '导出 Word' : 'Export Word', disabled: !has, run: () => void exportWord() },
+      { id: 'word-tracked', group: g.export, label: zh ? '导出带修订的 Word' : 'Export Word with tracked changes', keywords: 'revision track changes 修订', disabled: !has, run: () => void exportWord({ revisions: true }) },
+      { id: 'report', group: g.export, label: zh ? '导出修改记录' : 'Export change log', disabled: !has, run: () => void exportChangeReport() },
+      { id: 'rich', group: g.export, label: zh ? '复制为富文本' : 'Copy as formatted text', keywords: 'copy clipboard 飞书 钉钉 notion', disabled: !has, run: () => void copyRichText() },
+      { id: 'marks', group: g.export, label: zh ? '导出标记 JSON' : 'Export marks as JSON', disabled: !has, run: () => void exportAnnotations() },
+      { id: 'language', group: g.app, label: zh ? 'Switch to English' : '切换到中文', run: () => setLanguage(zh ? 'en' : 'zh') },
+      { id: 'theme-dark', group: g.app, label: zh ? '深色模式' : 'Dark theme', keywords: 'dark theme 夜间 暗色', run: () => setTheme('dark') },
+      { id: 'theme-light', group: g.app, label: zh ? '浅色模式' : 'Light theme', keywords: 'light theme 白天', run: () => setTheme('light') },
+      { id: 'theme-system', group: g.app, label: zh ? '外观跟随系统' : 'Follow system appearance', keywords: 'system theme', run: () => setTheme('system') },
+      { id: 'sepia', group: g.app, label: readingPreferences.background === 'sepia' ? (zh ? '正文改回白色底' : 'White page') : (zh ? '护眼米色底' : 'Sepia page'), keywords: 'sepia eye 护眼', run: () => updateReadingPreference('background', readingPreferences.background === 'sepia' ? 'white' : 'sepia') },
+      { id: 'setup', group: g.app, label: zh ? '默认应用与 AI' : 'Default app and AI', hidden: !window.mengxDesktop?.system, run: () => setSetupOpen(true) },
+    ];
+    return items;
   }
 
   async function exportAnnotations() {
@@ -2122,28 +2343,101 @@ function App() {
     }
   }
 
+  /** Save an export: next to the document on desktop (with Show in folder), a download on the web. */
+  async function saveExportFile(name, blob, label, detail = '') {
+    const zh = language === 'zh';
+    if (window.mengxDesktop) {
+      const handle = fileHandlesRef.current.get(activeDocumentRef.current.key);
+      const result = await saveDesktopExport(name, blob, { documentId: handle?.desktop ? handle.id : undefined, title: zh ? `导出${label}` : `Export ${label}` });
+      if (result?.ok) setActionToast({ message: `${zh ? `已导出${label}` : `${label} exported`}${detail}：${result.path}`, label: zh ? '在文件夹中显示' : 'Show in folder', run: () => void window.mengxDesktop.revealExport(result.path).catch((error) => setNotice(error.message)), at: Date.now() });
+      return result;
+    }
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = name; link.rel = 'noopener'; link.style.display = 'none';
+    document.body.appendChild(link); link.click(); link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setNotice(zh ? `已下载${label}${detail}` : `${label} downloaded${detail}`);
+    return { ok: true, name, bytes: blob.size };
+  }
+
+  const exportBase = () => fileName.replace(/\.(?:md|mdown|mkd|txt|markdown|html?|docx)$/i, '');
+
   async function exportDraft() {
     const source = getDocumentSource();
     const blob = new Blob([source], { type: 'text/markdown;charset=utf-8' });
-    const name = fileName.replace(/\.(?:md|mdown|mkd|txt|markdown|html?|docx)$/i, '') + '.md';
-    if (window.mengxDesktop) return saveDesktopExport(name, blob);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = name;
-    link.rel = 'noopener';
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setNotice(copy.exportNotice);
-    return { ok: true, name: link.download, bytes: blob.size };
+    // Saving next to an .md document must not suggest overwriting it.
+    const copyName = ['MD', 'TXT'].includes(activeDocumentRef.current.kind) && window.mengxDesktop ? (language === 'zh' ? '（副本）' : ' (copy)') : '';
+    return saveExportFile(exportBase() + copyName + '.md', blob, ' Markdown');
+  }
+
+  /** Copy the document as formatted text for Feishu, DingTalk, WeCom, Notion, email. */
+  async function copyRichText() {
+    const source = getDocumentSource();
+    // Without our internal attributes, so the pasted result is plain, clean formatting.
+    const html = `<meta charset="utf-8">${safeMarkdown(source, '', (path) => resolveDocumentAsset(path)).replace(/\s(?:data-[\w-]+|class|id)="[^"]*"/g, '')}`;
+    const holder = document.createElement('div'); holder.innerHTML = html;
+    const text = holder.innerText || source;
+    try {
+      if (window.mengxDesktop?.copyRich) await window.mengxDesktop.copyRich(html, text);
+      else await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+      setNotice(language === 'zh' ? '已复制为富文本，可以直接粘贴到飞书、钉钉、企业微信、Notion 或邮件里' : 'Copied as formatted text; paste into Notion, Docs or email');
+      return { ok: true };
+    } catch (error) { setNotice((language === 'zh' ? '复制失败：' : 'Copy failed: ') + error.message); return { ok: false, error: error.message }; }
+  }
+
+  /** Word comments for the instructions on the current text: what was asked, its state, the AI's answer. */
+  function instructionComments(source) {
+    const zh = language === 'zh', blocks = splitBlocks(source), numbers = numberRedlines(getAnnotations());
+    return getAnnotations().filter((item) => isRedline(item.type) && !item.anchor?.orphaned).map((item) => {
+      const lines = [`#${numbers.get(item.id) || ''} ${typeLabel(language, item.type)}${zh ? '：' : ': '}${item.note || (zh ? '（没有写要求）' : '(no instruction)')}`, `${zh ? '状态' : 'Status'}${zh ? '：' : ': '}${rt(language, item.status || 'open')}`];
+      if (item.answer) lines.push(`${zh ? 'AI 的回答' : 'AI answer'}${zh ? '：' : ': '}${item.answer}`);
+      if (item.question) lines.push(`${zh ? 'AI 的疑问' : 'AI question'}${zh ? '：' : ': '}${item.question}`);
+      return { block: item.anchor?.document ? 0 : blockAt(blocks, item.anchor.sourceOffset), text: lines.join('\n') };
+    });
+  }
+
+  /** The text before the latest AI or outside change: the base for tracked changes. */
+  async function latestChangeBase() {
+    const key = activeDocumentRef.current.key, current = roundRef.current, source = getDocumentSource();
+    if (current && current.key === key && !current.undone && current.previous !== source) return { base: current.previous, label: roundLabel(current) };
+    const record = await getRecovery(key);
+    const version = [...record.versions].reverse().find((entry) => ['before-ai', 'before-external'].includes(entry.reason) && entry.source !== source);
+    return version ? { base: version.source, label: new Date(version.at).toLocaleString() } : null;
+  }
+
+  async function exportChangeReport(base = null, current = getDocumentSource()) {
+    const zh = language === 'zh';
+    if (base === null) { const found = await latestChangeBase(); if (!found) { setNotice(zh ? '还没有 AI 修改或外部修改的记录。可以在「保存版本与恢复」里选一个版本对比后导出。' : 'No AI or outside change recorded yet. Compare a saved version and export from there.'); return { ok: false }; } base = found.base; }
+    const diff = diffBlocks(base, current), quote = (text) => text.trim().split('\n').map((line) => `> ${line}`).join('\n') || '> ∅';
+    const out = [`# ${zh ? '修改记录' : 'Change log'}：${documentTitle}`, '', `${zh ? '生成时间' : 'Generated'}：${new Date().toLocaleString()}`, ''];
+    let n = 0;
+    for (const hunk of diff.hunks) {
+      if (hunk.type !== 'change') continue;
+      n++;
+      out.push(`## ${zh ? '修改' : 'Change'} ${n}`, '', `**${zh ? '之前' : 'Before'}**`, '', quote(hunk.base.map((i) => diff.baseBlocks[i].text).join('')), '', `**${zh ? '之后' : 'After'}**`, '', quote(hunk.next.map((i) => diff.nextBlocks[i].text).join('')), '');
+    }
+    if (!n) out.push(zh ? '没有修改。' : 'No changes.', '');
+    const marks = getAnnotations().filter((item) => isRedline(item.type)), numbers = numberRedlines(marks);
+    if (marks.length) {
+      out.push(`## ${zh ? '指令' : 'Instructions'}`, '');
+      for (const item of marks) {
+        out.push(`- **#${numbers.get(item.id)} ${typeLabel(language, item.type)}** · ${rt(language, item.status || 'open')} · 「${(item.anchor?.document ? (zh ? '全文' : 'whole document') : item.anchor?.text || '').replace(/\s+/g, ' ').slice(0, 60)}」${item.note ? ` — ${item.note.replace(/\s+/g, ' ')}` : ''}`);
+        if (item.answer) out.push(`  - ${zh ? 'AI 的回答' : 'AI answer'}：${item.answer.replace(/\s+/g, ' ')}`);
+        if (item.question) out.push(`  - ${zh ? 'AI 的疑问' : 'AI question'}：${item.question.replace(/\s+/g, ' ')}`);
+      }
+      out.push('');
+    }
+    return saveExportFile(exportBase() + (zh ? '-修改记录.md' : '-changes.md'), new Blob([out.join('\n')], { type: 'text/markdown;charset=utf-8' }), zh ? '修改记录' : ' change log');
   }
 
   // Word export: charts and diagrams become pictures with their data table below.
-  async function exportWord() {
-    const name = fileName.replace(/\.(?:md|mdown|mkd|txt|markdown|html?|docx)$/i, '') + '.docx';
+  async function exportWord({ revisions = false, base = null } = {}) {
+    if (revisions && base === null) {
+      const found = await latestChangeBase();
+      if (!found) { setNotice(zh ? '还没有 AI 修改或外部修改的记录。可以在「保存版本与恢复」里选一个版本对比后导出。' : 'No AI or outside change recorded yet. Compare a saved version and export from there.'); return { ok: false }; }
+      base = found.base;
+    }
+    const name = exportBase() + (revisions ? (zh ? '-修订.docx' : '-tracked.docx') : '.docx');
     setNotice(zh ? '正在导出 Word…' : 'Exporting Word…');
     try {
       const [{ markdownToDocx }, { renderMermaidSvg }] = await Promise.all([import('./docx-export'), import('./mermaid-renderer')]);
@@ -2153,17 +2447,10 @@ function App() {
         const response = await fetch(url); if (!response.ok) return null;
         return new Uint8Array(await response.arrayBuffer());
       };
-      const { blob, warnings } = await markdownToDocx({ source: getDocumentSource(), title: documentTitle, language, loadImage, renderMermaid: renderMermaidSvg });
-      let result;
-      if (window.mengxDesktop) result = await saveDesktopExport(name, blob);
-      else {
-        const url = URL.createObjectURL(blob), link = document.createElement('a');
-        link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-        result = { ok: true, name, bytes: blob.size };
-      }
-      if (result?.ok !== false) setNotice(warnings.length ? (zh ? `已导出 Word；${warnings.length} 张图片没能读取，已用文字代替` : `Word exported; ${warnings.length} image(s) could not be read and were replaced with text`) : (zh ? '已导出 Word' : 'Word exported'));
-      return result;
+      const source = getDocumentSource();
+      const { blob, warnings } = await markdownToDocx({ source, base: revisions ? base : null, comments: revisions ? instructionComments(source) : [], title: documentTitle, language, loadImage, renderMermaid: renderMermaidSvg });
+      const detail = warnings.length ? (zh ? `（${warnings.length} 张图片没能读取，已用文字代替）` : ` (${warnings.length} image(s) replaced with text)`) : '';
+      return await saveExportFile(name, blob, revisions ? (zh ? '带修订的 Word' : ' Word with tracked changes') : ' Word', detail);
     } catch (error) {
       console.error('Word export failed:', error);
       setNotice(zh ? `导出 Word 失败：${error.message}` : `Word export failed: ${error.message}`);
@@ -2179,8 +2466,13 @@ function App() {
     return { ok: true, cancelled: true };
   }
 
-  async function exportPdf() {
+  function readPdfOptions() {
+    try { return { paper: 'A4', pageNumbers: true, ...JSON.parse(localStorage.getItem('stetwise-pdf-options') || '{}') }; } catch { return { paper: 'A4', pageNumbers: true }; }
+  }
+
+  async function exportPdf(options = readPdfOptions()) {
     if (pdfBusyRef.current) return { ok: false, error: 'busy' };
+    try { localStorage.setItem('stetwise-pdf-options', JSON.stringify({ paper: options.paper, pageNumbers: options.pageNumbers })); } catch { /* optional */ }
     pdfBusyRef.current = true;
     const startedAt = performance.now();
     const jobRecord = { name: fileName, startedAt, cancelled: false };
@@ -2213,20 +2505,14 @@ function App() {
             }
           };
           worker.onerror = (event) => reject(new Error(event.message || copy.pdfError));
-          worker.postMessage({ source, title, assets: [...assetMapRef.current.entries()], resourceBase: fileHandlesRef.current.get(currentDocumentKey)?.desktop ? fileHandlesRef.current.get(currentDocumentKey).resourceUrl('') : null,
+          worker.postMessage({ source, title, paper: options.paper, pageNumbers: options.pageNumbers, assets: [...assetMapRef.current.entries()], resourceBase: fileHandlesRef.current.get(currentDocumentKey)?.desktop ? fileHandlesRef.current.get(currentDocumentKey).resourceUrl('') : null,
             fontUrl: new URL(`${import.meta.env.BASE_URL}fonts/NotoSansSC-Regular.ttf`, window.location.href).href });
         });
         const { buffer, pages, stats } = payload;
         jobRecord.pages = pages; jobRecord.stats = stats;
         if (pdfCancelRef.current) return { ok: false, cancelled: true };
-        if (window.mengxDesktop) return { ...await saveDesktopExport(exportName, new Blob([buffer], { type: 'application/pdf' })), pages, stats };
-        const url = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
-        const link = document.createElement('a');
-        link.href = url; link.download = exportName;
-        document.body.appendChild(link); link.click(); link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-        setNotice(copy.pdfNotice);
-        return { ok: true, name: exportName, pages, stats };
+        const result = await saveExportFile(exportName, new Blob([buffer], { type: 'application/pdf' }), ' PDF', language === 'zh' ? `（${pages} 页）` : ` (${pages} pages)`);
+        return { ...result, pages, stats };
       }
     } catch (error) {
       if (error.name !== 'AbortError') { console.error('PDF export failed:', error); setNotice(copy.pdfError); return { ok: false, error: error.message || 'pdf-failed' }; }
@@ -2504,6 +2790,11 @@ function App() {
     if (type === 'bookmark') { addAnnotation('bookmark', {}); return; }
     if (!anchor) { setNotice(language === 'zh' ? '请先选择一段正文' : 'Select a passage first'); return; }
     const rect = window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0).getBoundingClientRect() : null;
+    // The same instruction on the same words again: open the one that is there instead of adding a copy.
+    const source = getDocumentSource();
+    const twin = markStore.get(activeDocumentRef.current.key).find((item) => item.type === type && item.anchor?.rawQuote === anchor.rawQuote && !item.anchor?.document
+      && resolveTextAnchor(source, item.anchor).sourceOffset === anchor.sourceOffset && (!isRedline(type) || ['open', 'sent', 'unchanged', 'question'].includes(item.status || 'open')));
+    if (twin) { window.getSelection()?.removeAllRanges(); openMarkPopover(twin.id, rect, { focus: true }); setNotice(language === 'zh' ? '这段文字已经有同样的标记，已为你打开' : 'This passage already has that mark; opened it'); return; }
     const created = addAnnotation(type, { anchor, label: anchor.text });
     window.getSelection()?.removeAllRanges();
     if (isRedline(type) || type === 'note') openMarkPopover(created.id, rect, { focus: true });
@@ -2604,7 +2895,7 @@ function App() {
     return { ok: true, id };
   }
 
-  // ---------- Proofline: AI round trip ----------
+  // ---------- Stetwise: AI round trip ----------
   function currentTasks(source = getDocumentSource(), statuses) {
     return buildTasks(source, markStore.get(activeDocumentRef.current.key), statuses ? { includeStatuses: statuses } : undefined);
   }
@@ -2644,6 +2935,23 @@ function App() {
     setSendOpen(onlyIds ? { onlyIds } : true);
   }
 
+  /** Save a sample, imported or unsaved document as .md, open that file with the same marks, then send. */
+  async function saveAsMarkdownAndSend() {
+    const zh = language === 'zh', oldKey = activeDocumentRef.current.key, marks = markStore.get(oldKey), onlyIds = sendOpen?.onlyIds || null;
+    const result = await saveDesktopExport(exportBase() + '.md', new Blob([getDocumentSource()], { type: 'text/markdown;charset=utf-8' }), { title: zh ? '另存为 Markdown' : 'Save as Markdown' });
+    if (!result?.ok) return;
+    try {
+      const record = await window.mengxDesktop.openExported(result.path);
+      const handle = desktopHandle(record);
+      await window.stetwiseReader.openFile({ file: await handle.getFile(), handle, path: handle.path });
+      const newKey = activeDocumentRef.current.key;
+      if (newKey !== oldKey && marks.length && !markStore.get(newKey).length) { markStore.set(newKey, marks.map((item) => ({ ...item }))); setAnnotationVersion((value) => value + 1); }
+      setSendOpen(false);
+      window.setTimeout(() => openSendDialog(onlyIds), 50);
+      setNotice(zh ? `已另存为 ${result.path}，标记也一起带过来了` : `Saved as ${result.path}; marks came along`);
+    } catch (error) { setNotice(error.message); }
+  }
+
   function canRunLocalAgent() {
     const handle = fileHandlesRef.current.get(activeDocumentRef.current.key);
     return Boolean(window.mengxDesktop?.agents && handle?.desktop && ['MD', 'TXT'].includes(activeDocumentRef.current.kind));
@@ -2679,38 +2987,92 @@ function App() {
       }
       return { ok: true, id: result.id };
     } catch (error) {
-      if (run) { run.status = 'failed'; run.finishedAt = Date.now(); run.diagnostic = { message: error.message }; agentRunRef.current = run; setAgentRun({ ...run }); setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); }
+      if (run) { run.status = 'failed'; run.finishedAt = Date.now(); run.diagnostic = { message: error.message }; agentRunRef.current = run; setAgentRun({ ...run }); setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open', sentTo: undefined }])), run.key); }
       setNotice(rt(language, 'runFailed') + ': ' + error.message); return { ok: false, error: error.message };
     } finally { agentStartingRef.current = false; }
+  }
+
+  /** Per-instruction progress, read from the working copy the AI is saving. */
+  function runProgress(run, content) {
+    const clean = stripAnchors(content);
+    const changed = countChanges(run.base, clean);
+    if (!run.anchors?.anchors?.length) return { items: [], changed };
+    const asks = new Set(run.tasks.filter((task) => task.type === 'ask').map((task) => task.n)), items = [];
+    for (const anchor of run.anchors.anchors) {
+      const open = content.indexOf(anchorOpen(anchor.n)), close = open < 0 ? -1 : content.indexOf(anchorClose(anchor.n), open);
+      const status = open < 0 || close < 0 ? 'missing' : content.slice(open + anchorOpen(anchor.n).length, close) !== run.base.slice(anchor.start, anchor.end) ? 'done' : 'pending';
+      for (const n of anchor.members) if (!asks.has(n)) items.push({ n, status });
+    }
+    for (const task of run.tasks) if (task.scope === 'document') items.push({ n: task.n, status: changed ? 'done' : 'pending' });
+    return { items: items.sort((a, b) => a.n - b.n), changed };
+  }
+
+  agentEventsRef.current = {
+    current(id) { const run = agentRunRef.current; if (!run || (run.id && run.id !== id)) return null; if (!run.id && run.status !== 'starting') return null; run.id = id; return run; },
+    output({ id, text }) { const run = this.current(id); if (!run) return; run.output = (run.output + text).slice(-200000); setAgentRun({ ...run }); },
+    status(data) { const run = this.current(data.id); if (!run) return; Object.assign(run, data); setAgentRun({ ...run }); },
+    progress({ id, content }) {
+      const run = this.current(id); if (!run || !['starting', 'running'].includes(run.status) || typeof content !== 'string') return;
+      run.live = content; run.progress = runProgress(run, content); setAgentRun({ ...run });
+    },
+    done(data) {
+      const run = this.current(data.id); if (!run) return;
+      const finished = { ...run, ...data, output: data.output || run.output, finishedAt: Date.now(), status: data.cancelled ? 'cancelled' : data.code === 0 ? 'done' : 'failed' };
+      ({ answers: finished.answers, questions: finished.questions } = parseReply(data.reply || finished.output));
+      if (run.scope === 'folder') finished.diskBaseline = data.proposed;
+      finished.hasChanges = typeof data.proposed === 'string' && stripAnchors(data.proposed) !== run.base;
+      agentRunRef.current = finished; setAgentRun(finished);
+      setCompareView((view) => view?.readOnly ? null : view);
+      const zh = language === 'zh';
+      if (!data.cancelled) {
+        // Say which document, how much changed and whether the AI is asking something.
+        const documentName = tabsRef.current.find((tab) => tab.id === run.key)?.name || 'Stetwise';
+        const changed = typeof data.proposed === 'string' ? countChanges(run.base, stripAnchors(data.proposed)) : 0, asked = finished.questions?.size || 0;
+        const body = finished.status === 'done'
+          ? (zh ? `${run.agent.name} ${changed ? `改完了 ${changed} 处` : '没有改动文档'}${asked ? `，有 ${asked} 个疑问` : ''}。点这里回来审阅。` : `${run.agent.name} ${changed ? `changed ${changed} place${changed === 1 ? '' : 's'}` : 'made no changes'}${asked ? `, with ${asked} question${asked === 1 ? '' : 's'}` : ''}. Click to review.`)
+          : (zh ? `${run.agent.name} 没有完成：${finished.diagnostic?.message || '请查看运行日志'}` : `${run.agent.name} did not finish: ${finished.diagnostic?.message || 'see the run log'}`);
+        void window.mengxDesktop?.attention?.(documentName, body)?.catch?.(() => {});
+      }
+      if (finished.status !== 'done') { setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open', sentTo: undefined }])), run.key); return; }
+      if (typeof data.proposed !== 'string') { finished.status = 'failed'; finished.diagnostic = { message: zh ? 'AI 未留下可读取的文档结果，请查看日志' : 'The AI left no readable document; see the log' }; setAgentRun({ ...finished }); setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open', sentTo: undefined }])), run.key); return; }
+      openReview(agentReview(run, data.proposed, finished));
+    },
+  };
+
+  /** Build the review for a finished run. Edits made here during the run are kept: the AI's changes are carried over to them. */
+  function agentReview(run, proposed, finished) {
+    const scoped = scopedReview(run.base, proposed, run.anchors);
+    const common = { key: run.key, tasks: run.tasks, answers: finished.answers || new Map(), questions: finished.questions || new Map(), sourceLabel: run.agent.name, diskBaseline: finished.diskBaseline, origin: 'agent' };
+    const now = activeDocumentRef.current.key === run.key ? getDocumentSource() : (fileContentsRef.current.get(run.key) ?? run.base);
+    if (run.scope === 'folder' || now === run.base) return { ...common, base: run.base, ...scoped };
+    const rebased = rebaseChanges(run.base, scoped.proposed, now);
+    const fresh = new Map(buildTasks(now, markStore.get(run.key), { includeStatuses: REDLINE_STATUS }).map((task) => [task.id, task]));
+    const tasks = run.tasks.map((task) => { const moved = fresh.get(task.id); return moved ? { ...moved, n: task.n } : task; });
+    return { ...common, tasks, base: now, proposed: rebased.merged, unscoped: scoped.unscoped ? rebaseChanges(run.base, scoped.unscoped, now).merged : undefined,
+      outside: scoped.outside, anchorMissing: scoped.anchorMissing, rebased: true, conflicts: rebased.conflicts };
   }
 
   useEffect(() => {
     const bridge = window.mengxDesktop?.agents;
     if (!bridge) return undefined;
-    const current = (id) => { const run = agentRunRef.current; if (!run || (run.id && run.id !== id)) return null; if (!run.id && run.status !== 'starting') return null; run.id = id; return run; };
-    const offOutput = bridge.onOutput(({ id, text }) => { const run = current(id); if (!run) return; run.output = (run.output + text).slice(-200000); setAgentRun({ ...run }); });
-    const offStatus = bridge.onStatus?.((data) => { const run = current(data.id); if (!run) return; Object.assign(run, data); setAgentRun({ ...run }); });
-    const offDone = bridge.onDone(async (data) => {
-      const run = current(data.id); if (!run) return;
-      const finished = { ...run, ...data, output: data.output || run.output, finishedAt: Date.now(), status: data.cancelled ? 'cancelled' : data.code === 0 ? 'done' : 'failed' };
-      ({ answers: finished.answers, questions: finished.questions } = parseReply(data.reply || finished.output));
-      if (run.scope === 'folder') finished.diskBaseline = data.proposed;
-      agentRunRef.current = finished; setAgentRun(finished);
-      if (finished.status !== 'done') { setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); return; }
-      if (typeof data.proposed !== 'string') { finished.status = 'failed'; finished.diagnostic = { message: 'AI 未留下可读取的文档结果，请查看日志' }; setAgentRun({ ...finished }); setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open' }])), run.key); return; }
-      openReview({ key: run.key, base: run.base, ...scopedReview(run.base, data.proposed, run.anchors), tasks: run.tasks, answers: finished.answers, questions: finished.questions, sourceLabel: run.agent.name, diskBaseline: finished.diskBaseline, origin: 'agent' });
-    });
-    return () => { offOutput(); offDone(); offStatus?.(); };
+    const events = () => agentEventsRef.current;
+    const offOutput = bridge.onOutput((data) => events().output(data));
+    const offStatus = bridge.onStatus?.((data) => events().status(data));
+    const offProgress = bridge.onProgress?.((data) => events().progress(data));
+    const offDone = bridge.onDone((data) => events().done(data));
+    return () => { offOutput(); offDone(); offStatus?.(); offProgress?.(); };
   }, []);
 
   async function recoverAgentRun(id) {
     const run = await window.mengxDesktop.agents.recover(id);
     if (typeof run.proposed !== 'string') throw new Error(run.diagnostic?.message || '没有可恢复的结果，请查看任务日志');
     const handle = desktopHandle(run.record);
-    await window.prooflineReader.openFile({ file: await handle.getFile(), handle, path: handle.path });
+    await window.stetwiseReader.openFile({ file: await handle.getFile(), handle, path: handle.path });
     setAgentSettingsOpen(false);
-    openReview({ key: activeDocumentRef.current.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors?.length ? { enabled: true, anchors: run.anchors, wholeDocument: (run.tasks || []).some((task) => task.scope === 'document') } : null), tasks: run.tasks || [], answers: parseReply(run.reply || run.output).answers, questions: parseReply(run.reply || run.output).questions,
-      sourceLabel: run.agentName, diskBaseline: run.scope === 'folder' ? await (await handle.getFile()).text() : undefined, origin: 'agent' });
+    const parsed = parseReply(run.reply || run.output);
+    openReview(agentReview({ key: activeDocumentRef.current.key, base: run.base, scope: run.scope, tasks: run.tasks || [], agent: { name: run.agentName },
+      anchors: run.anchors?.length ? { enabled: true, anchors: run.anchors, wholeDocument: (run.tasks || []).some((task) => task.scope === 'document') } : null }, run.proposed,
+      { answers: parsed.answers, questions: parsed.questions, diskBaseline: run.scope === 'folder' ? await (await handle.getFile()).text() : undefined }));
   }
 
   function stopAgent() {
@@ -2742,10 +3104,11 @@ function App() {
   }
 
   function openReview(next) {
-    setMarkPopover(null);
+    setMarkPopover(null); setCompareView(null); setPendingReview(null);
     if (!readingMode) commitInlineEdit({ notify: false });
     reviewRef.current = next;
     setReview(next);
+    if (['agent', 'reply', 'external'].includes(next.origin)) void storePendingReview(next.key, serializeReview(next)).catch(() => {});
   }
 
   async function openExternalReview() {
@@ -2796,11 +3159,12 @@ function App() {
     } else markCurrentEdited();
   }
 
-  async function applyReview(final, decisions, diff) {
+  async function applyReview(final, decisions, diff, { notes = {}, replies = {} } = {}) {
     const current = reviewRef.current;
     if (!current) return;
     if (activeDocumentRef.current.key !== current.key) await switchTab(current.key);
-    if (current.origin === 'agent' && getDocumentSource() !== current.base && getDocumentSource() !== current.diskBaseline) { setNotice(language === 'zh' ? '文档在任务运行期间发生了变化，未覆盖当前内容。请先导出副本，再处理差异。' : 'The document changed during the run. Export a copy before resolving differences.'); return; }
+    if (current.origin === 'agent' && getDocumentSource() !== current.base && getDocumentSource() !== current.diskBaseline) { setNotice(language === 'zh' ? '文档在审阅期间又变了，没有覆盖当前内容。请放弃这次审阅后重新发送。' : 'The document changed during review. Discard this review and send again.'); return; }
+    const previous = getDocumentSource(), statusesBefore = markSnapshot(current.key);
     applySource(final, { diskBaseline: current.diskBaseline });
     const touched = new Set();
     for (const hunk of diff.hunks) {
@@ -2814,19 +3178,47 @@ function App() {
       const mark = marks.find((item) => item.id === task.id);
       if (!mark) continue;
       const question = current.questions?.get(task.n);
-      if (question) { updates.set(task.id, { status: 'question', question }); continue; }
+      const reply = String(replies[task.n] || '').trim();
+      if (question) { updates.set(task.id, { status: 'question', question, ...(reply ? { note: `${mark.note ? mark.note + '\n\n' : ''}${language === 'zh' ? '补充：' : 'Answer: '}${reply}` } : {}) }); continue; }
       if (task.type === 'ask') { const answer = current.answers?.get(task.n); updates.set(task.id, answer ? { status: 'answered', answer } : { status: 'open' }); continue; }
       if (task.scope === 'document') { updates.set(task.id, { status: diff.hunks.some((hunk) => hunk.type === 'change' && decisions[hunk.id] !== 'reject') ? 'resolved' : 'unchanged' }); continue; }
       const gone = resolveTextAnchor(final, mark.anchor).orphaned;
       updates.set(task.id, { status: touched.has(task.id) || gone ? 'resolved' : (current.origin === 'external' ? mark.status : 'unchanged') });
     }
     setMarkStatuses(updates);
+    // A rejection with a note becomes a new instruction on the text that stayed.
+    let offset = 0, created = 0;
+    const createdIds = [], superseded = new Map();
+    for (const hunk of diff.hunks) {
+      const kept = hunk.type === 'equal' || decisions[hunk.id] === 'reject' ? hunk.base.map((index) => diff.baseBlocks[index].text).join('') : hunk.next.map((index) => diff.nextBlocks[index].text).join('');
+      const note = hunk.type === 'change' && decisions[hunk.id] === 'reject' ? String(notes[hunk.id] || '').trim() : '';
+      if (note && kept.trim()) {
+        // Anchor the words, not the list marker, heading hashes or quote mark in front of them.
+        const trimmed = kept.trim(), marker = /^(?:[-*+]|\d{1,9}[.)]|#{1,6}|>)[ \t]+/.exec(trimmed)?.[0] || '';
+        const raw = trimmed.slice(marker.length), at = offset + (kept.length - kept.trimStart().length) + marker.length;
+        const holder = document.createElement('div'); holder.innerHTML = safeMarkdown(raw, '', () => '');
+        const anchor = { text: holder.textContent.trim() || raw, rawQuote: raw, sourceOffset: at, sourceEnd: at + raw.length, prefix: final.slice(Math.max(0, at - 48), at), suffix: final.slice(at + raw.length, at + raw.length + 48) };
+        try {
+          createdIds.push(addAnnotation('fix', { anchor, note, label: anchor.text }).id); created++;
+          // The new instruction replaces the ones that produced the rejected change, so they are not sent again.
+          for (const task of tasksForHunk(diff, hunk, current.tasks)) if (task.type !== 'ask' && updates.get(task.id)?.status !== 'question') superseded.set(task.id, { status: 'resolved' });
+        } catch { /* the text could not be anchored */ }
+      }
+      offset += kept.length;
+    }
+    if (superseded.size) setMarkStatuses(superseded, current.key);
+    const questionIds = [...updates.entries()].filter(([, value]) => value.status === 'question').map(([id]) => id);
+    // Questions you answered and rejections you explained go back to the AI together.
+    const followUpIds = [...questionIds, ...createdIds];
+    showRound({ kind: 'review', origin: current.origin, key: current.key, previous, next: final, count: diff.hunks.filter((hunk) => hunk.type === 'change' && decisions[hunk.id] !== 'reject').length, at: Date.now(), statuses: statusesBefore, source: current.sourceLabel, followUpIds, created });
     reviewRef.current = null; setReview(null);
+    window.clearTimeout(reviewProgressTimerRef.current); void storePendingReview(current.key, null).catch(() => {});
     if (agentRunRef.current?.key === current.key) { agentRunRef.current = null; setAgentRun(null); }
     if (fileHandlesRef.current.has(current.key) && ['MD', 'TXT'].includes(activeDocumentRef.current.kind)) {
       const saved = await saveCurrentFile();
       const asked = [...updates.values()].filter((item) => item.status === 'question').length;
-      setNotice(saved?.ok ? (asked ? rt(language, 'questionsPending', asked) : rt(language, 'reviewApplied')) : (language === 'zh' ? '审阅结果仍在本机草稿，写入失败：' : 'Reviewed result is still a draft; save failed: ') + (saved?.error || 'unknown'));
+      const answered = Object.values(replies).some((value) => String(value || '').trim());
+      setNotice(saved?.ok ? (followUpIds.length && (answered || created) ? (language === 'zh' ? `已记下你的回答和意见。点上方「接着发给 AI」把这 ${followUpIds.length} 条再发一次。` : `Your answers and notes are saved. Choose Send to AI above to send these ${followUpIds.length} again.`) : asked ? rt(language, 'questionsPending', asked) : rt(language, 'reviewApplied')) : (language === 'zh' ? '审阅结果仍在本机草稿，写入失败：' : 'Reviewed result is still a draft; save failed: ') + (saved?.error || 'unknown'));
     } else setNotice(language === 'zh' ? '审阅完成；当前为会话文档，请导出保存' : 'Review complete; export this session document to save it');
   }
 
@@ -2836,13 +3228,14 @@ function App() {
     if (activeDocumentRef.current.key !== current.key) await switchTab(current.key);
     // When the AI already changed the file on disk, put the reviewed-away version back.
     if (current.diskBaseline !== undefined && current.diskBaseline !== current.base) applySource(current.base, { diskBaseline: current.diskBaseline });
-    setMarkStatuses(new Map((current.tasks || []).filter((task) => markStore.get(current.key).find((item) => item.id === task.id)?.status === 'sent').map((task) => [task.id, { status: 'open' }])));
+    setMarkStatuses(new Map((current.tasks || []).filter((task) => markStore.get(current.key).find((item) => item.id === task.id)?.status === 'sent').map((task) => [task.id, { status: 'open', sentTo: undefined }])));
     reviewRef.current = null; setReview(null);
+    window.clearTimeout(reviewProgressTimerRef.current); void storePendingReview(current.key, null).catch(() => {});
     if (agentRunRef.current?.key === current.key) { agentRunRef.current = null; setAgentRun(null); }
     setNotice(rt(language, 'reviewDiscarded'));
   }
 
-  // Automation and tests only: review a reply in Proofline's <<<REDLINE #n>>> format.
+  // Automation and tests only: review a reply in Stetwise's <<<REVISION #n>>> format.
   function reviewReply(text, label = 'AI') {
     const source = getDocumentSource();
     const tasks = currentTasks(source, REDLINE_STATUS);
@@ -3299,6 +3692,15 @@ function App() {
   const annotations = getAnnotations();
   const redlineNumbers = numberRedlines(annotations);
   const openRedlines = annotations.filter((item) => isRedline(item.type) && ['open', 'sent', 'unchanged'].includes(item.status));
+  // Same words twice on one line: say which one the instruction is about.
+  const markOccurrences = new Map();
+  for (const item of annotations.slice(0, 500)) {
+    if (!isRedline(item.type) || item.anchor?.orphaned || item.anchor?.document || !(item.anchor?.sourceEnd > item.anchor?.sourceOffset)) continue;
+    const hint = positionHint(markdown, item.anchor.sourceOffset, item.anchor.sourceEnd);
+    if (hint?.total > 1) markOccurrences.set(item.id, { occurrence: hint.occurrence, total: hint.total });
+  }
+  const versionReason = (reason) => ({ zh: { 'before-ai': 'AI 修改前', autosave: '自动保存', 'before-save': '保存前', 'external-version': '外部版本', external: '被外部修改', 'before-external': '外部修改前' },
+    en: { 'before-ai': 'before AI', autosave: 'autosave', 'before-save': 'before save', 'external-version': 'outside version', external: 'changed outside', 'before-external': 'before outside change' } }[language === 'en' ? 'en' : 'zh'][reason] || reason);
   const popoverMark = markPopover ? annotations.find((item) => item.id === markPopover.id) : null;
   const platform = window.mengxDesktop?.platform || 'web';
   const mod = platform === 'darwin' ? '⌘' : 'Ctrl';
@@ -3324,14 +3726,14 @@ function App() {
       }}>
         <div className="brand-block">
           <svg className="brand-mark" width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" fill="#FFFFFF" /><path d="M5 9h16M5 13h16M5 17h10" stroke="#0A0A0A" strokeWidth="2" /><path d="M3 21L23 5" stroke="#FF2D1A" strokeWidth="3.5" /></svg>
-          <span className="brand-name">PROOFLINE</span>
+          <span className="brand-name">STETWISE</span>
         </div>
         <div className="document-tabs" role="tablist" aria-label={copy.markdownDocument}>
           <div className="reading-history-buttons"><button className="icon-button quiet" aria-label={zh ? '返回阅读位置' : 'Go back'} title="Alt ←" disabled={!navigationHistoryRef.current.back.length} onClick={() => void navigateHistory('back')}><ArrowLeft size={15} /></button><button className="icon-button quiet" aria-label={zh ? '前进阅读位置' : 'Go forward'} title="Alt →" disabled={!navigationHistoryRef.current.forward.length} onClick={() => void navigateHistory('forward')}><ArrowRight size={15} /></button></div>
           <div className="document-tab-list">{getTabs().map((tab) => {
             const count = tab.active ? openRedlines.length : 0;
             return <div className={`document-tab ${tab.active ? 'active' : ''}`} key={tab.id}>
-              <button role="tab" aria-selected={tab.active} tabIndex={tab.active ? 0 : -1} title={tab.path} onClick={() => void switchTab(tab.id)}><span className="tab-name">{tab.name}</span>{count > 0 && <span className="tab-count">{count}</span>}{tab.dirty && <span className="tab-dirty" title={zh ? '尚未写回原文件' : 'Unsaved changes'} />}</button>
+              <button role="tab" aria-selected={tab.active} tabIndex={tab.active ? 0 : -1} title={tab.path} onClick={() => void switchTab(tab.id)}>{agentRun?.key === tab.id && ['starting', 'running'].includes(agentRun.status) && <span className="tab-running" title={zh ? 'AI 正在修改这篇文档' : 'AI is editing this document'} aria-label={zh ? 'AI 正在修改' : 'AI running'} />}<span className="tab-name">{tab.name}</span>{count > 0 && <span className="tab-count">{count}</span>}{tab.dirty && <span className="tab-dirty" title={zh ? '尚未写回原文件' : 'Unsaved changes'} />}</button>
               <button className="tab-close" title={`${zh ? '关闭' : 'Close'} · ${mod} W`} aria-label={`${zh ? '关闭' : 'Close'} ${tab.name}`} onClick={() => void closeTab(tab.id)}><X size={13} /></button>
             </div>;
           })}</div>
@@ -3354,8 +3756,11 @@ function App() {
               <span className="menu-separator" />
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setStatsOpen(true); }}><AlignLeft size={16} /><span>{zh ? '文档统计' : 'Document statistics'}</span></button>
               <button role="menuitem" aria-label={copy.export} onClick={() => { setDocumentMenuOpen(false); void exportDraft(); }}><Download size={16} /><span>{copy.export}</span></button>
-              <button role="menuitem" aria-label={copy.exportPdf} disabled={Boolean(pdfProgress)} onClick={() => { setDocumentMenuOpen(false); void exportPdf(); }}><FileDown size={16} /><span>{copy.exportPdf}</span></button>
+              <button role="menuitem" aria-label={copy.exportPdf} disabled={Boolean(pdfProgress)} onClick={() => { setDocumentMenuOpen(false); setPdfOptions(readPdfOptions()); }}><FileDown size={16} /><span>{copy.exportPdf}…</span></button>
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); void exportWord(); }}><FileDown size={16} /><span>{zh ? '导出 Word' : 'Export Word'}</span></button>
+              <button role="menuitem" title={zh ? '把最近一次 AI 或外部修改写成 Word 修订，指令和 AI 的回答写成批注' : 'The latest AI or outside change as Word tracked changes, instructions as comments'} onClick={() => { setDocumentMenuOpen(false); void exportWord({ revisions: true }); }}><FileDown size={16} /><span>{zh ? '导出带修订的 Word' : 'Export Word with tracked changes'}</span></button>
+              <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); void exportChangeReport(); }}><FileDown size={16} /><span>{zh ? '导出修改记录' : 'Export change log'}</span></button>
+              <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); void copyRichText(); }}><Copy size={16} /><span>{zh ? '复制为富文本' : 'Copy as formatted text'}</span></button>
               <span className="menu-separator" />
               {window.mengxDesktop?.system && <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setSetupOpen(true); }}><Settings2 size={16} /><span>{zh ? '默认应用与 AI' : 'Default app and AI'}</span></button>}
               <button role="menuitem" onClick={() => { setDocumentMenuOpen(false); setAgentSettingsOpen(true); }}><Settings2 size={16} /><span>{rt(language, 'agentSettings')}</span></button>
@@ -3371,6 +3776,14 @@ function App() {
             <button className={`icon-button quiet ${preferencesOpen ? 'active' : ''}`} aria-label={copy.settings} title={copy.settings} onClick={() => { setPreferencesOpen((open) => !open); setHelpOpen(false); }}><Settings2 size={17} /></button>
             {preferencesOpen && <div className="topbar-popover preferences-popover" role="dialog" aria-label={copy.preferencePanel}>
               <div className="popover-heading"><strong>{copy.preferencePanel}</strong><button className="icon-button quiet" onClick={() => setPreferencesOpen(false)} aria-label={copy.closePanel} title={copy.closePanel}><X size={15} /></button></div>
+              <div className="popover-section-label">{zh ? '外观' : 'Appearance'}</div>
+              <div className="preference-segmented" role="group" aria-label={zh ? '外观' : 'Appearance'}>
+                {[['light', zh ? '浅色' : 'Light'], ['dark', zh ? '深色' : 'Dark'], ['system', zh ? '跟随系统' : 'System']].map(([value, label]) => <button key={value} className={theme === value ? 'selected' : ''} onClick={() => setTheme(value)} aria-pressed={theme === value}>{label}</button>)}
+              </div>
+              <div className="popover-section-label">{zh ? '正文底色' : 'Page colour'}</div>
+              <div className="preference-segmented" role="group" aria-label={zh ? '正文底色' : 'Page colour'}>
+                {[['white', zh ? '白色' : 'White'], ['sepia', zh ? '护眼米色' : 'Sepia']].map(([value, label]) => <button key={value} className={readingPreferences.background === value ? 'selected' : ''} onClick={() => updateReadingPreference('background', value)} aria-pressed={readingPreferences.background === value}>{label}</button>)}
+              </div>
               <div className="popover-section-label">{copy.readerWidth}</div>
               <div className="preference-segmented" role="group" aria-label={copy.readerWidth}>
                 {['narrow', 'comfortable', 'wide'].map((width) => <button key={width} className={readingWidth === width ? 'selected' : ''} onClick={() => setReadingWidth(width)} aria-pressed={readingWidth === width}>{copy[width]}</button>)}
@@ -3446,6 +3859,7 @@ function App() {
           <div className="side-tabs" role="tablist">
             <button role="tab" aria-selected={sideMode === 'contents'} className={sideMode === 'contents' ? 'active' : ''} onClick={() => { setSideMode('contents'); localStorage.setItem('redline-side-mode', 'contents'); }}>{rt(language, 'contents')}</button>
             <button role="tab" aria-selected={sideMode === 'files'} className={sideMode === 'files' ? 'active' : ''} onClick={() => { setSideMode('files'); localStorage.setItem('redline-side-mode', 'files'); }}>{rt(language, 'files')}</button>
+            <button role="tab" aria-selected={sideMode === 'history'} className={sideMode === 'history' ? 'active' : ''} onClick={() => { setSideMode('history'); localStorage.setItem('redline-side-mode', 'history'); }}>{zh ? '历史' : 'History'}</button>
             <button className="icon-button quiet sidebar-toggle" onClick={() => setSidebarOpen(false)} aria-label={copy.collapseSidebar} title={copy.collapseSidebar}><PanelLeftClose size={16} /></button>
           </div>
           {sideMode === 'files' ? <div className="side-files">
@@ -3488,7 +3902,8 @@ function App() {
                 {!filteredRecents.length && <div className="empty-state">{copy.noMatches}</div>}
               </div>
             </div>
-          </div> : <div className="side-contents">
+          </div> : sideMode === 'history' ? <HistoryPanel language={language} documentKey={currentDocumentKey} refresh={`${historyVersion}:${saveState.status}:${round?.at || 0}`} reasonLabel={versionReason}
+            onCompare={(id) => void compareVersion(id).catch((error) => setNotice(error.message))} onRestore={(id) => void restoreVersion(id).catch((error) => setNotice(error.message))} /> : <div className="side-contents">
             <div className="outline-summary"><span>{outline.length} {zh ? '个章节' : 'sections'}</span></div>
             <VirtualList items={visibleOutline} className="outline-list" rowHeight={34} activeKey={activeOutline} focusKey={outlineFocus}
               itemKey={(item) => item.slug} renderItem={(item) => <div className={`outline-row level-${item.level} ${activeOutline === item.slug ? 'active' : ''}`}><button className="outline-fold" tabIndex={item.children ? 0 : -1} disabled={!item.children} aria-label={`${collapsedHeadings.has(item.slug) ? (zh ? '展开' : 'Expand') : (zh ? '收起' : 'Collapse')} ${item.text}`} aria-expanded={!collapsedHeadings.has(item.slug)} onClick={() => toggleHeading(item.slug)}>{item.children ? (collapsedHeadings.has(item.slug) ? <ChevronRight size={12} /> : <ChevronDown size={12} />) : <span />}</button><button className={`outline-item ${activeOutline === item.slug ? 'active' : ''}`} data-outline={item.slug} aria-current={activeOutline === item.slug ? 'location' : undefined} title={outlineBreadcrumb(item)} onKeyDown={(event) => handleOutlineKey(event, item)} onClick={() => scrollToHeading(item)}><span>{item.text}</span></button></div>} />
@@ -3503,7 +3918,7 @@ function App() {
           onPointerDown={resizeSidebar} onPointerMove={resizeSidebar} onPointerUp={resizeSidebar} onPointerCancel={resizeSidebar}
           onKeyDown={(event) => { if (['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); setSidebarWidth((width) => Math.max(220, Math.min(480, width + (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 50 : 10)))); } }} />}
 
-        {!sidebarOpen && <button className="reopen-sidebar" onClick={() => setSidebarOpen(true)} aria-label={copy.showSidebar} title={copy.showSidebar}><LayoutPanelLeft size={17} /></button>}
+        {!sidebarOpen && !review && !compareView && <button className="reopen-sidebar" onClick={() => setSidebarOpen(true)} aria-label={copy.showSidebar} title={copy.showSidebar}><LayoutPanelLeft size={17} /></button>}
 
         <main className="main-area">
           {searchOpen && !review && <div className="search-strip">
@@ -3540,7 +3955,9 @@ function App() {
             <span style={{ width: `${documentAnalysis.searching ? 55 : Math.max(3, documentAnalysis.progress)}%` }} />
           </div>
 
-          {review ? <ReviewView key={`${review.key}:${review.origin}:${review.proposed.length}`} language={language} review={review} renderMarkdown={(source) => safeMarkdown(source, '', (path) => resolveDocumentAsset(path))} onApply={(final, decisions, diff) => void applyReview(final, decisions, diff)} onDiscard={() => void discardReview().catch((error) => setNotice(error.message))} /> :
+          {review ? <ReviewView key={`${review.key}:${review.origin}:${review.proposed.length}`} language={language} review={review} renderMarkdown={(source) => safeMarkdown(source, '', (path) => resolveDocumentAsset(path))} onApply={(final, decisions, diff, extras) => void applyReview(final, decisions, diff, extras)} onDiscard={() => void discardReview().catch((error) => setNotice(error.message))} onProgress={rememberReviewProgress} /> :
+          compareView && compareView.key === currentDocumentKey ? <ReviewView key={`compare:${compareView.id}`} language={language} review={compareView} renderMarkdown={(source) => safeMarkdown(source, '', (path) => resolveDocumentAsset(path))} onRevert={revertFromCompare} onClose={() => setCompareView(null)}
+            onExportWord={() => void exportWord({ revisions: true, base: compareView.base })} onExportReport={() => void exportChangeReport(compareView.base, compareView.proposed)} /> :
           <div className="reading-workspace">
           {!tabs.length ? <div className="reader-empty">
             <svg width="56" height="56" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" fill="#0A0A0A" /><path d="M5 9h16M5 13h16M5 17h10" stroke="#FFFFFF" strokeWidth="2" /><path d="M3 21L23 5" stroke="#FF2D1A" strokeWidth="3.5" /></svg>
@@ -3565,6 +3982,25 @@ function App() {
             <div className="reading-stage-main">
           <div className={`reading-layout width-${readingWidth} reader-font-${readingPreferences.fontFamily} reader-size-${readingPreferences.fontSize} reader-leading-${readingPreferences.lineHeight} reader-spacing-${readingPreferences.paragraphSpacing} reader-background-${readingPreferences.background} reader-code-${readingPreferences.codeSize} ${splitView ? 'split-enabled' : ''} ${usingRichEditor ? 'rich-editing' : ''}`}>
             <section className="reading-column reading-scroll-region" ref={readingScrollRef} aria-label={zh ? '正文阅读区' : 'Document reading pane'} tabIndex={0}>
+              {saveState.status === 'conflict' && <div className="round-bar conflict" role="alert">
+                <div className="round-text"><strong>{zh ? '被外部修改了' : 'Changed outside'}</strong><small>{zh ? '你这里也有没保存的修改，所以没有自动刷新' : 'You have unsaved changes here, so it did not refresh'}</small></div>
+                <div className="round-actions"><button className="primary-button" onClick={() => void openExternalReview()}>{zh ? '对比并合并' : 'Compare and merge'}</button><button onClick={() => void resolveConflictFromUi('reload')}>{zh ? '用磁盘上的版本' : 'Use the version on disk'}</button><button onClick={() => setConflictDialog(true)}>{zh ? '更多…' : 'More…'}</button></div></div>}
+              {round && round.key === currentDocumentKey && saveState.status !== 'conflict' && <div className={`round-bar ${round.undone ? 'undone' : ''}`} role="status" aria-live="polite">
+                <div className="round-text">
+                  <strong>{round.undone ? (zh ? '已撤销这次修改' : 'Change undone') : round.count ? `${roundLabel(round)} · ${zh ? `${round.count} 处` : `${round.count} change${round.count === 1 ? '' : 's'}`}` : roundLabel(round)}</strong>
+                  <small>{new Date(round.at).toLocaleTimeString()}{round.kind === 'external' && round.writes > 1 ? (zh ? ` · 共 ${round.writes} 次写入` : ` · ${round.writes} writes`) : ''}{round.created > 0 && !round.undone ? (zh ? ` · 已把 ${round.created} 条驳回意见变成新指令` : ` · ${round.created} rejection note${round.created === 1 ? '' : 's'} became instructions`) : ''}</small>
+                </div>
+                <div className="round-actions">
+                  {!round.undone && round.followUpIds?.length > 0 && <button className="primary-button" onClick={() => openSendDialog(round.followUpIds)}>{zh ? `接着发给 AI（${round.followUpIds.length} 条）` : `Send ${round.followUpIds.length} to AI`}</button>}
+                  {!round.undone && round.previous !== round.next && <button onClick={compareRound}>{zh ? '对比' : 'Compare'}</button>}
+                  {round.previous === round.next ? null : round.undone ? <button onClick={redoRound}>{zh ? '恢复' : 'Redo'}</button> : <button onClick={undoRound} title={round.kind === 'external' ? (zh ? '把文件改回这次修改之前；外部程序如果还在写，可能会再改' : 'Put the file back; the other program may write again') : ''}>{zh ? '撤销' : 'Undo'}</button>}
+                  <button className="quiet" aria-label={zh ? '关闭' : 'Dismiss'} onClick={() => showRound(null)}><X size={14} /></button>
+                </div>
+              </div>}
+              {pendingReview && pendingReview.key === currentDocumentKey && !review && <div className="round-bar" role="status">
+                <div className="round-text"><strong>{zh ? '有一次没审完的修改' : 'An unfinished review'}</strong><small>{pendingReview.sourceLabel} · {new Date(pendingReview.at).toLocaleString()}{pendingReview.progress?.decisions ? ` · ${zh ? '已决定' : 'decided'} ${Object.values(pendingReview.progress.decisions).filter(Boolean).length}` : ''}</small></div>
+                <div className="round-actions"><button className="primary-button" onClick={() => { const value = reviveReview(pendingReview); setPendingReview(null); openReview(value); }}>{zh ? '继续审阅' : 'Continue'}</button>
+                <button onClick={() => { void storePendingReview(pendingReview.key, null).catch(() => {}); setPendingReview(null); }}>{zh ? '放弃' : 'Discard'}</button></div></div>}
               {recoveryAvailable && <button className="recovery-banner" onClick={() => void showVersions()}>{zh ? '有尚未写回的恢复草稿，点击查看' : 'An unsaved recovery draft is available'}</button>}
               {documentAnalysis.degraded && <div className="recovery-banner degraded-banner" role="alert"><span>{zh ? '文档索引未能完成，当前为纯文本阅读；搜索和高级排版不可用。' : 'Indexing failed. Plain-text reading only; search and advanced layout are unavailable.'}</span><button onClick={documentAnalysis.retryPreparation}>{zh ? '重试' : 'Retry'}</button></div>}
               {!usingRichEditor && <header className="document-heading">
@@ -3604,7 +4040,7 @@ function App() {
           </div>}
         </main>
 
-        {outlineOpen && !focusMode && !review && tabs.length > 0 && <RedlineRail language={language} mode={railMode} onMode={setRailMode} marks={annotations} numbers={redlineNumbers}
+        {outlineOpen && !focusMode && !review && !compareView && tabs.length > 0 && <InstructionRail language={language} mode={railMode} onMode={setRailMode} marks={annotations} numbers={redlineNumbers} occurrences={markOccurrences}
           activeId={markPopover?.id || activeAnnotation} busy={['starting', 'running'].includes(agentRun?.status)} storage={markStore.getSaveState(currentDocumentKey)} onStorage={() => setAgentSettingsOpen(true)}
           onSelect={(id) => {
             const whole = getAnnotations().find((entry) => entry.id === id);
@@ -3616,6 +4052,7 @@ function App() {
             if (range) openMarkPopover(id, range.getBoundingClientRect());
           }).catch(() => {}); }}
           onRemove={(id) => removeAnnotation(id)} onSend={(ids) => openSendDialog(Array.isArray(ids) ? ids : null)}
+          onClearDone={(ids) => { const previous = markStore.get(activeDocumentRef.current.key); markStore.set(activeDocumentRef.current.key, previous.filter((item) => !ids.includes(item.id))); recordAnnotationChange(previous); setAnnotationVersion((value) => value + 1); setUndoToast({ message: zh ? `已清理 ${ids.length} 条已处理的指令` : `Cleared ${ids.length} finished instruction${ids.length === 1 ? '' : 's'}`, at: Date.now() }); }}
           onDocumentInstruction={(rect) => { const created = addAnnotation('free', { anchor: { text: '', rawQuote: '', document: true, sourceOffset: 0, sourceEnd: 0 }, label: language === 'zh' ? '全文' : 'Whole document' }); openMarkPopover(created.id, rect, { focus: true }); }}
           onBookmark={() => addAnnotation('bookmark', {})} onExport={() => void exportAnnotations()}
           onUndo={() => changeAnnotationHistory('undo')} onRedo={() => changeAnnotationHistory('redo')} canUndo={Boolean(annotationHistory?.past.length)} canRedo={Boolean(annotationHistory?.future.length)}
@@ -3641,26 +4078,35 @@ function App() {
       {noteDialog && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setNoteDialog(null); }}><div className="note-dialog annotation-dialog" role="dialog" aria-modal="true" aria-label={zh ? '编辑标注' : 'Edit mark'}><h2>{typeLabel(language, noteDialog.type)}</h2><blockquote>{noteDialog.anchor?.text}</blockquote><label className="annotation-field-label">{zh ? '名称' : 'Name'}<input autoFocus value={annotationLabelDraft} maxLength={160} onChange={(event) => setAnnotationLabelDraft(event.target.value)} /></label><div className="dialog-actions"><button onClick={() => setNoteDialog(null)}>{copy.cancel}</button><button className="primary-button" disabled={!annotationLabelDraft.trim()} onClick={() => { if (noteDialog.id) updateAnnotation(noteDialog.id, { label: annotationLabelDraft }); setNoteDialog(null); }}>{zh ? '保存' : 'Save'}</button></div></div></div>}
       {closeTabConfirmation && <div className="modal-backdrop"><div className="note-dialog" role="alertdialog" aria-modal="true"><h2>{zh ? '修改尚未写回原文件' : 'Changes have not been saved'}</h2><p>{closeTabConfirmation.name}</p><p>{zh ? '可以取消关闭并导出副本，或确认放弃这篇文档的修改。' : 'Cancel and export a copy, or discard changes and close.'}</p><div className="dialog-actions"><button autoFocus onClick={() => setCloseTabConfirmation(null)}>{copy.cancel}</button><button className="danger-button" onClick={() => void closeTab(closeTabConfirmation.id, { discard: true })}>{zh ? '放弃修改并关闭' : 'Discard and close'}</button></div></div></div>}
       {notice && <div className="toast"><Check size={15} />{notice}</div>}
+      {actionToast && !undoToast && <div className="toast undo-toast action-toast" key={actionToast.at} role="status"><span>{actionToast.message}</span><button onClick={() => { actionToast.run(); setActionToast(null); }}>{actionToast.label}</button><button className="quiet" aria-label={zh ? '关闭' : 'Close'} onClick={() => setActionToast(null)}><X size={14} /></button></div>}
+      {pdfOptions && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPdfOptions(null); }}><div className="note-dialog pdf-options" role="dialog" aria-modal="true" aria-labelledby="pdf-options-title" onKeyDown={(event) => { if (event.key === 'Escape') setPdfOptions(null); if (event.key === 'Enter') { const options = pdfOptions; setPdfOptions(null); void exportPdf(options); } }}>
+        <h2 id="pdf-options-title">{zh ? '保存 PDF' : 'Save PDF'}</h2>
+        <fieldset className="pdf-option"><legend>{zh ? '纸张' : 'Paper'}</legend><div className="segmented">{['A4', 'Letter'].map((paper) => <button key={paper} className={pdfOptions.paper === paper ? 'selected' : ''} aria-pressed={pdfOptions.paper === paper} onClick={() => setPdfOptions({ ...pdfOptions, paper })}>{paper}</button>)}</div></fieldset>
+        <label className="pdf-option checkbox"><input type="checkbox" checked={pdfOptions.pageNumbers} onChange={(event) => setPdfOptions({ ...pdfOptions, pageNumbers: event.target.checked })} />{zh ? '页脚显示页码' : 'Page numbers in the footer'}</label>
+        <p className="setup-muted">{zh ? '中文字体会嵌入 PDF；图表和流程图导出为矢量图。' : 'Chinese fonts are embedded; charts and diagrams stay vector.'}</p>
+        <div className="dialog-actions"><button onClick={() => setPdfOptions(null)}>{copy.cancel}</button><button className="primary-button" autoFocus onClick={() => { const options = pdfOptions; setPdfOptions(null); void exportPdf(options); }}>{zh ? '保存' : 'Save'}</button></div>
+      </div></div>}
       {undoToast && <div className="toast undo-toast" key={undoToast.at}><span>{undoToast.message}</span><button onClick={() => { changeAnnotationHistory('undo'); setUndoToast(null); }}>{rt(language, 'undo')}<kbd>{mod} Z</kbd></button></div>}
       {pdfProgress && <div className="progress-toast" role="status" aria-live="polite"><div className="progress-toast-line"><span>{pdfProgress.label}</span><strong>{pdfProgress.value}%</strong><button className="icon-button" onClick={cancelPdf} aria-label={copy.cancel} title={copy.cancel}><X size={14} /></button></div><div className="progress-track"><span style={{ width: `${pdfProgress.value}%` }} /></div>{pdfProgress.pages > 0 && <small>{pdfProgress.pages.toLocaleString()} {copy.pages}</small>}</div>}
-      {versionDialog && <div className="modal-backdrop"><div className="note-dialog versions-dialog" role="dialog" aria-modal="true" aria-label={zh ? '保存版本与恢复' : 'Saved versions and recovery'}><div className="popover-heading"><strong>{zh ? '保存版本与恢复' : 'Saved versions and recovery'}</strong><button className="icon-button quiet" aria-label={copy.cancel} onClick={() => setVersionDialog(null)}><X size={16} /></button></div><p>{fileName}</p>{versionDialog.draft && <button className="version-entry" onClick={() => setVersionToRestore('draft')}><span>{zh ? '未写回的恢复草稿' : 'Unsaved recovery draft'}</span><small>{new Date(versionDialog.draft.at).toLocaleString()} · {versionDialog.draft.length.toLocaleString()}</small></button>}{versionDialog.versions.map((version) => <button className="version-entry" key={version.id} onClick={() => setVersionToRestore(version.id)}><span>{new Date(version.at).toLocaleString()}</span><small>{version.length.toLocaleString()} · {version.reason === 'before-ai' ? (zh ? 'AI 修改前' : 'before AI') : version.reason}</small></button>)}{!versionDialog.draft && !versionDialog.versions.length && <p>{zh ? '当前文档还没有保存版本' : 'No saved versions yet'}</p>}{versionToRestore && <div className="version-confirm"><p>{zh ? '恢复此版本并自动保存？当前内容也会保留在历史中，可撤销。' : 'Restore and autosave this version? Current content stays in history and can be undone.'}</p><div className="dialog-actions"><button onClick={() => setVersionToRestore(null)}>{copy.cancel}</button><button className="primary-button" onClick={() => void restoreVersion(versionToRestore).catch((error) => setNotice(error.message))}>{zh ? '确认恢复' : 'Restore'}</button></div></div>}</div></div>}
+      {versionDialog && <div className="modal-backdrop"><div className="note-dialog versions-dialog" role="dialog" aria-modal="true" aria-label={zh ? '保存版本与恢复' : 'Saved versions and recovery'}><div className="popover-heading"><strong>{zh ? '保存版本与恢复' : 'Saved versions and recovery'}</strong><button className="icon-button quiet" aria-label={copy.cancel} onClick={() => setVersionDialog(null)}><X size={16} /></button></div><p>{fileName}</p>{versionDialog.draft && <button className="version-entry" onClick={() => setVersionToRestore('draft')}><span>{zh ? '未写回的恢复草稿' : 'Unsaved recovery draft'}</span><small>{new Date(versionDialog.draft.at).toLocaleString()} · {versionDialog.draft.length.toLocaleString()}</small></button>}{versionDialog.versions.map((version) => <div className="version-row" key={version.id}><button className="version-entry" onClick={() => setVersionToRestore(version.id)}><span>{new Date(version.at).toLocaleString()}</span><small>{version.length.toLocaleString()} · {versionReason(version.reason)}</small></button><button className="version-compare" onClick={() => void compareVersion(version.id).catch((error) => setNotice(error.message))}>{zh ? '对比' : 'Compare'}</button></div>)}{!versionDialog.draft && !versionDialog.versions.length && <p>{zh ? '当前文档还没有保存版本' : 'No saved versions yet'}</p>}{versionToRestore && <div className="version-confirm"><p>{zh ? '恢复此版本并自动保存？恢复后页面顶部会出现「撤销」，随时可以改回来。' : 'Restore and autosave this version? An Undo button appears at the top afterwards.'}</p><div className="dialog-actions"><button onClick={() => setVersionToRestore(null)}>{copy.cancel}</button><button className="primary-button" onClick={() => void restoreVersion(versionToRestore).catch((error) => setNotice(error.message))}>{zh ? '确认恢复' : 'Restore'}</button></div></div>}</div></div>}
       {conflictDialog && <div className="modal-backdrop"><div className="note-dialog conflict-dialog" role="alertdialog" aria-modal="true" aria-labelledby="conflict-title">
-        <h2 id="conflict-title">{zh ? '原文件已被其他程序修改' : 'The file changed outside Proofline'}</h2>
+        <h2 id="conflict-title">{zh ? '被外部修改了' : 'Changed outside Stetwise'}</h2>
         <p className="conflict-path">{fileMeta.source}</p>
-        <p>{zh ? '写回已暂停。可以先审阅外部改动，逐处决定保留哪一边。' : 'Saving is paused. Review the outside changes and decide what to keep.'}</p>
+        <p>{zh ? '你这里也有没保存的修改，所以写回已暂停。可以对比两边，逐处决定保留哪一边。' : 'You also have unsaved changes here, so saving is paused. Compare both sides and decide what to keep.'}</p>
         <div className="conflict-actions">
-          <button className="primary-button" autoFocus disabled={conflictBusy} onClick={() => void openExternalReview()}>{zh ? '审阅差异' : 'Review differences'}</button>
+          <button className="primary-button" autoFocus disabled={conflictBusy} onClick={() => void openExternalReview()}>{zh ? '对比并合并' : 'Compare and merge'}</button>
           <button disabled={conflictBusy} onClick={() => void resolveConflictFromUi('reload')}><RefreshCw size={15} />{zh ? '直接加载磁盘版本' : 'Load disk version'}</button>
           <button disabled={conflictBusy} onClick={() => void exportDraft()}><FileDown size={15} />{zh ? '导出当前副本' : 'Export current copy'}</button>
           <button className="danger-button" disabled={conflictBusy} onClick={() => void resolveConflictFromUi('overwrite')}>{zh ? '备份并覆盖原文件' : 'Back up and overwrite'}</button>
           <button disabled={conflictBusy} onClick={() => setConflictDialog(false)}>{zh ? '稍后处理' : 'Later'}</button>
         </div>
       </div></div>}
-      {sendOpen && <SendDialog language={language} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
+      {paletteOpen && <CommandPalette language={language} onClose={() => setPaletteOpen(false)} commands={paletteCommands()} />}
+      {sendOpen && <SendDialog language={language} onSaveAs={window.mengxDesktop && !canRunLocalAgent() ? () => void saveAsMarkdownAndSend() : null} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
       {setupOpen && <SetupWizard language={language} platform={platform} onClose={closeSetup} />}
       {manualTransfer && <ManualTransfer language={language} onClose={() => setManualTransfer(null)} onPackage={() => transferPackage()} onImport={(text) => importTransfer(text, true)} />}
       {agentSettingsOpen && <AgentSettings language={language} onClose={() => setAgentSettingsOpen(false)} onNotice={setNotice} onRecover={recoverAgentRun} />}
-      {agentRun && !review && <RunPanel language={language} run={agentRun} onStop={stopAgent} onDismiss={() => { agentRunRef.current = null; setAgentRun(null); }} onSettings={() => setAgentSettingsOpen(true)} onDiagnose={() => void window.mengxDesktop.agents.diagnostics({ overrides: readAgentSettings().overrides, runId: agentRun.id }).then((result) => setNotice('诊断任务已保存：' + result.path)).catch((error) => setNotice(error.message))}
+      {agentRun && !review && !compareView && <RunPanel language={language} run={agentRun} onStop={stopAgent} onLogin={agentRun.agent?.kind === 'cli' ? () => void window.mengxDesktop.agents.login(agentRun.agent.id, readAgentSettings().overrides).then(() => setNotice(language === 'zh' ? '已打开登录终端。登录完成后点「重新发送」。' : 'Sign-in terminal opened. Send again when done.')).catch((error) => setNotice(error.message)) : null} onPreview={() => { const run = agentRunRef.current; if (run?.live && run.key === activeDocumentRef.current.key) openCompare({ base: run.base, proposed: stripAnchors(run.live), label: run.agent.name, readOnly: true }); }} onDismiss={() => { agentRunRef.current = null; setAgentRun(null); }} onSettings={() => setAgentSettingsOpen(true)} onDiagnose={() => void window.mengxDesktop.agents.diagnostics({ overrides: readAgentSettings().overrides, runId: agentRun.id }).then((result) => setNotice('诊断任务已保存：' + result.path)).catch((error) => setNotice(error.message))}
         onRetry={() => void (async () => { const run = agentRunRef.current; if (!run) return; if (activeDocumentRef.current.key !== run.key) await switchTab(run.key); agentRunRef.current = null; setAgentRun(null); openSendDialog(run.tasks.map((task) => task.id)); })().catch((error) => setNotice(error.message))}
         onReview={() => { const run = agentRunRef.current; if (run && typeof run.proposed === 'string') openReview({ key: run.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors), tasks: run.tasks, answers: run.answers || new Map(), sourceLabel: run.agent.name, diskBaseline: run.diskBaseline, origin: 'agent' }); }} />}
       {lightbox && <ImageViewer key={lightbox.key || lightbox.src} image={lightbox} language={language} onClose={() => setLightbox(null)} onNotice={setNotice} />}

@@ -5,14 +5,15 @@ const hash = (value) => createHash('sha256').update(value).digest('hex');
 
 function installationDirectory({ packaged, executable, appPath, platform = process.platform, env = process.env }) {
   const paths = platform === 'win32' ? path.win32 : path.posix;
-  if (env.REDLINE_DATA_DIR) return paths.resolve(env.REDLINE_DATA_DIR);
-  if (!packaged) return paths.join(appPath, '.redline-data');
-  if (platform === 'win32' && env.PORTABLE_EXECUTABLE_DIR) return paths.join(env.PORTABLE_EXECUTABLE_DIR, 'ProoflineData');
+  const custom = env.STETWISE_DATA_DIR || env.REDLINE_DATA_DIR;
+  if (custom) return paths.resolve(custom);
+  if (!packaged) return paths.join(appPath, '.stetwise-data');
+  if (platform === 'win32' && env.PORTABLE_EXECUTABLE_DIR) return paths.join(env.PORTABLE_EXECUTABLE_DIR, 'StetwiseData');
   if (platform === 'darwin') {
     const bundle = executable.toLowerCase().lastIndexOf('.app/contents/');
-    if (bundle >= 0) return paths.join(paths.dirname(executable.slice(0, bundle + 4)), 'ProoflineData');
+    if (bundle >= 0) return paths.join(paths.dirname(executable.slice(0, bundle + 4)), 'StetwiseData');
   }
-  return paths.join(paths.dirname(env.APPIMAGE || executable), 'ProoflineData');
+  return paths.join(paths.dirname(env.APPIMAGE || executable), 'StetwiseData');
 }
 
 class DataStore {
@@ -66,8 +67,12 @@ class DataStore {
     const sourceHash = hash(await fs.readFile(record.path));
     const matches = (await this.list('annotations')).filter((item) => item.document === record.name && item.sourceHash === sourceHash);
     if (matches.length === 1) { await this.saveMarks(record, JSON.stringify(matches[0])); return JSON.stringify(matches[0]); }
-    try { const legacy = await fs.readFile(record.path + '.redline.json', 'utf8'); await this.saveMarks(record, legacy); return legacy; }
-    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    // Marks kept beside the document by older versions (or by the fallback below) are adopted once.
+    for (const suffix of ['.stetwise.json', '.redline.json']) {
+      try { const legacy = await fs.readFile(record.path + suffix, 'utf8'); await this.saveMarks(record, legacy); return legacy; }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    return null;
   }
   async saveMarks(record, text) {
     const data = text == null ? { redline: 1, marks: [] } : JSON.parse(text);

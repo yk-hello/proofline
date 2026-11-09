@@ -1,5 +1,5 @@
 name: CLI not detected or not working
-description: Proofline does not find or cannot run a command-line AI on your computer
+description: Stetwise does not find or cannot run a command-line AI on your computer
 labels: [cli]
 body:
   - type: markdown
@@ -11,14 +11,14 @@ body:
     validations: { required: true }
   - type: input
     id: system
-    attributes: { label: System / 系统, placeholder: "Windows 11 x64, Proofline 0.4.0" }
+    attributes: { label: System / 系统, placeholder: "Windows 11 x64, Stetwise 0.4.0" }
     validations: { required: true }
   - type: textarea
     id: install
     attributes: { label: How the CLI is installed / 安装方式, description: "npm, fnm, nvm, Homebrew, installer, launcher script…" }
   - type: textarea
     id: what
-    attributes: { label: What happens / 现象, description: "Not detected, connection test fails, edit fails… Include the message Proofline shows." }
+    attributes: { label: What happens / 现象, description: "Not detected, connection test fails, edit fails… Include the message Stetwise shows." }
     validations: { required: true }
   - type: textarea
     id: agent

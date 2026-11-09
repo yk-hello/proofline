@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const invoke = (operation, ...args) => ipcRenderer.invoke('mengx:files', operation, ...args);
-const windowInvoke = (operation) => ipcRenderer.invoke('mengx:window', operation);
+const windowInvoke = (operation, payload) => ipcRenderer.invoke('mengx:window', operation, payload);
 contextBridge.exposeInMainWorld('mengxDesktop', {
   platform: process.platform,
   minimizeWindow: () => windowInvoke('minimize'),
@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('mengxDesktop', {
   isMaximized: () => windowInvoke('isMaximized'),
   closeWindow: () => windowInvoke('close'),
   getAccentColor: () => windowInvoke('accentColor'),
+  attention: (title, body) => windowInvoke('attention', { title, body }),
+  setTheme: (theme) => windowInvoke('theme', { theme }),
   chooseFile: (currentId) => invoke('chooseFile', currentId),
   chooseDirectory: () => invoke('chooseDirectory'),
   read: (id) => invoke('read', id),
@@ -25,7 +27,10 @@ contextBridge.exposeInMainWorld('mengxDesktop', {
   openDroppedFile: (file) => invoke('openDroppedFile', webUtils.getPathForFile(file)),
   openExternal: (url) => invoke('openExternal', url),
   openLinkedFile: (id, source) => invoke('openLinkedFile', id, source),
-  saveExport: (name, bytes) => invoke('saveExport', name, bytes),
+  saveExport: (name, bytes, options) => invoke('saveExport', name, bytes, options),
+  revealExport: (filename) => invoke('revealExport', filename),
+  openExported: (filename) => invoke('openExported', filename),
+  copyRich: (html, text) => invoke('copyRich', html, text),
   copyImage: (id, source, bytes) => invoke('copyImage', id, source, bytes),
   revealResource: (id, source) => invoke('revealResource', id, source),
   finishClose: (result) => ipcRenderer.send('mengx:finish-close', result),
@@ -70,6 +75,7 @@ contextBridge.exposeInMainWorld('mengxDesktop', {
     writeClipboard: (text) => ipcRenderer.invoke('redline:agents', 'clipboard', text),
     readClipboard: () => ipcRenderer.invoke('redline:agents', 'readClipboard'),
     onOutput: (handler) => { const listener = (_event, data) => handler(data); ipcRenderer.on('agents:output', listener); return () => ipcRenderer.removeListener('agents:output', listener); },
+    onProgress: (handler) => { const listener = (_event, data) => handler(data); ipcRenderer.on('agents:progress', listener); return () => ipcRenderer.removeListener('agents:progress', listener); },
     onDone: (handler) => { const listener = (_event, data) => handler(data); ipcRenderer.on('agents:done', listener); return () => ipcRenderer.removeListener('agents:done', listener); },
   },
 });

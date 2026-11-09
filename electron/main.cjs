@@ -1,4 +1,11 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu, clipboard, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell, Menu, clipboard, ClipboardItem, nativeImage, screen } = require('electron');
+// Electron 44 has the asynchronous W3C-style clipboard only (read / write / readText / writeText).
+async function readClipboardHtml() {
+  try {
+    for (const item of await clipboard.read()) if (item.types.includes('text/html')) return await (await item.getType('text/html')).text();
+  } catch { /* no HTML on the clipboard */ }
+  return '';
+}
 const fs = require('node:fs/promises');
 const { statSync, existsSync } = require('node:fs');
 const path = require('node:path');
@@ -9,8 +16,8 @@ const connect = require('./connect.cjs');
 const { DataStore, installationDirectory } = require('./data-store.cjs');
 const { openMacTerminal } = require('./platform.cjs');
 
-app.setName('Proofline');
-app.setAppUserModelId('app.proofline.desktop');
+app.setName('Stetwise');
+app.setAppUserModelId('app.stetwise.desktop');
 protocol.registerSchemesAsPrivileged([
   { scheme: 'mengx', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   { scheme: 'mengx-resource', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
@@ -23,14 +30,19 @@ else {
   // Renaming the product must preserve existing documents, grants and reading state.
   const current = app.getPath('userData');
   if (!existsSync(current)) {
-    const previous = ['Redline', 'MENG X'].map((name) => path.join(app.getPath('appData'), name)).find((folder) => existsSync(folder));
-    if (previous) app.setPath('userData', previous);
+    const previous = ['Proofline', 'Redline', 'MENG X'].map((name) => path.join(app.getPath('appData'), name)).find((folder) => existsSync(folder));
+    if (previous) {
+      // If an older copy is still running and holds the folder, keep using it where it is.
+      try { require('node:fs').renameSync(previous, current); } catch { app.setPath('userData', previous); }
+    }
   }
 }
-const devUrl = !app.isPackaged && process.env.MENGX_DEV_URL;
+const devUrl = !app.isPackaged && (process.env.STETWISE_DEV_URL || process.env.MENGX_DEV_URL);
 const exportIndex = args.indexOf('--export-directory');
 const exportDirectory = automation && exportIndex >= 0 ? path.resolve(args[exportIndex + 1]) : null;
 let window, files, agents, dataStore, canClose = false, awaitingClose = false, detectedAgents = [];
+// Files this session exported; only these can be shown in Explorer / Finder from the renderer.
+const exportedFiles = new Set();
 const isMac = process.platform === 'darwin';
 function requestedPaths(argv) {
   const paths = [];
@@ -83,20 +95,22 @@ else {
     let savedStorage;
     try { savedStorage = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'storage-location.json'), 'utf8')).path; } catch { /* installation default */ }
     const defaultStorage = installationDirectory({ packaged: app.isPackaged, executable: app.getPath('exe'), appPath: app.getAppPath() });
-    // Before the rename to Proofline the folder was called RedlineData: carry it over once.
-    for (const root of [defaultStorage, path.join(app.getPath('userData'), 'ProoflineData')]) {
-      const legacy = path.join(path.dirname(root), 'RedlineData');
-      if (!savedStorage && !existsSync(root) && existsSync(legacy)) {
+    // The data folder was ProoflineData (and RedlineData before that); in development .redline-data.
+    // Carry the newest one over once: rename when possible, otherwise copy and leave the original.
+    for (const root of [defaultStorage, path.join(app.getPath('userData'), 'StetwiseData')]) {
+      const names = path.basename(root).startsWith('.') ? ['.redline-data'] : ['ProoflineData', 'RedlineData'];
+      const legacy = names.map((name) => path.join(path.dirname(root), name)).find((folder) => existsSync(folder));
+      if (!savedStorage && !existsSync(root) && legacy) {
         try { await fs.rename(legacy, root); }
         catch { try { await fs.cp(legacy, root, { recursive: true, errorOnExist: true, force: false }); } catch { /* the store reports it */ } }
       }
     }
-    dataStore = new DataStore(automation ? path.join(app.getPath('userData'), 'ProoflineData') : savedStorage || defaultStorage);
+    dataStore = new DataStore(automation ? path.join(app.getPath('userData'), 'StetwiseData') : savedStorage || defaultStorage);
     await dataStore.init();
     // An installation under Program Files (or a removed drive) cannot be written by a normal
     // user. Keep marks working by falling back to the per-user data folder, and say so.
     if (!dataStore.status().writable && !automation) {
-      const fallback = new DataStore(path.join(app.getPath('userData'), 'ProoflineData'));
+      const fallback = new DataStore(path.join(app.getPath('userData'), 'StetwiseData'));
       if ((await fallback.init()).writable) { fallback.fallbackFrom = dataStore.root; dataStore = fallback; }
     }
     files = new NativeFiles(path.join(app.getPath('userData'), 'file-access.json'), (filename) => shell.trashItem(filename), dataStore);
@@ -134,9 +148,9 @@ else {
     const area = screen.getPrimaryDisplay().workArea;
     const bounds = { width: Math.min(area.width, Math.max(720, Number(windowState.width) || 1440)), height: Math.min(area.height, Math.max(520, Number(windowState.height) || 940)) };
     if (Number.isFinite(windowState.x) && Number.isFinite(windowState.y) && screen.getAllDisplays().some(({ workArea }) => windowState.x + bounds.width > workArea.x && windowState.x < workArea.x + workArea.width && windowState.y + bounds.height > workArea.y && windowState.y < workArea.y + workArea.height)) Object.assign(bounds, { x: windowState.x, y: windowState.y });
-    window = new BrowserWindow({ title: 'Proofline', ...bounds, minWidth: 760, minHeight: 520,
+    window = new BrowserWindow({ title: 'Stetwise', ...bounds, minWidth: 760, minHeight: 520,
       ...(isMac ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 19 } } : { frame: false }),
-      backgroundColor: '#ffffff', icon: path.join(__dirname, '..', 'build', isMac ? 'icon.png' : 'redline.ico'), show: !args.includes('--hidden'), autoHideMenuBar: true,
+      backgroundColor: '#ffffff', icon: path.join(__dirname, '..', 'build', isMac ? 'icon.png' : 'icon.ico'), show: !args.includes('--hidden'), autoHideMenuBar: true,
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false } });
     if (windowState.maximized) window.maximize();
     let windowStateTimer, windowStateWrite = Promise.resolve();
@@ -146,8 +160,34 @@ else {
     };
     const queueWindowState = () => { clearTimeout(windowStateTimer); windowStateTimer = setTimeout(saveWindowState, 200); };
     for (const event of ['resize', 'move', 'maximize', 'unmaximize']) window.on(event, queueWindowState);
-    ipcMain.handle('mengx:window', (event, operation) => {
+    ipcMain.handle('mengx:window', (event, operation, payload) => {
       if (!trusted(event)) throw new Error('Untrusted renderer');
+      if (operation === 'attention') {
+        // Long AI runs finish while the user is elsewhere: flash the taskbar and notify.
+        // Scripted sessions and tests never pop system notifications.
+        if (automation || window.isFocused()) return { ok: true, shown: false };
+        window.flashFrame(true);
+        window.once('focus', () => window.flashFrame(false));
+        try {
+          const { Notification } = require('electron');
+          if (Notification.isSupported()) {
+            // Our own logo in the toast. The header name and icon come from the executable:
+            // packaged builds say Stetwise; running from source shows Electron.
+            const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.png'));
+            const note = new Notification({ title: String(payload?.title || 'Stetwise').slice(0, 80), body: String(payload?.body || '').slice(0, 240), ...(icon.isEmpty() ? {} : { icon }) });
+            note.on('click', () => { if (window.isMinimized()) window.restore(); window.show(); window.focus(); });
+            note.show();
+          }
+        } catch { /* notifications unavailable */ }
+        return { ok: true, shown: true };
+      }
+      if (operation === 'theme') {
+        // Native parts (scrollbars, the window behind the page) follow the app's theme.
+        const { nativeTheme } = require('electron');
+        nativeTheme.themeSource = ['light', 'dark'].includes(payload?.theme) ? payload.theme : 'system';
+        window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#161616' : '#ffffff');
+        return { ok: true, dark: nativeTheme.shouldUseDarkColors };
+      }
       if (operation === 'minimize') { window.minimize(); return { ok: true }; }
       if (operation === 'toggleMaximize') { const maximized = !window.isMaximized(); if (maximized) window.maximize(); else window.restore(); return { ok: true, maximized }; }
       if (operation === 'isMaximized') return window.isMaximized();
@@ -187,7 +227,7 @@ else {
           tools: detected.map(({ id, name, path, version, available, auth, defaultArgs }) => ({ id, name, path, version, available, auth, defaultArgs })),
           lastRun: run ? { id: run.id, adapterId: run.adapterId, executable: run.executable, scope: run.scope, status: run.status, code: run.code, diagnostic: run.diagnostic, timedOut: run.timedOut } : null };
         await fs.writeFile(path.join(dir, 'diagnostics.json'), JSON.stringify(report, null, 2), 'utf8');
-        const task = '# Proofline CLI connection diagnosis\n\nRead diagnostics.json. Diagnose why Proofline cannot start the user’s existing AI CLI. Do not read user documents or print credentials.\n\n1. Identify the actual working command or launcher. Compare executable path, wrapper variables (especially GEMINI_CLI_HOME), Node runtime and current directory with Proofline. Do not dump a full environment, auth file or .env. Check presence of needed variables without printing values.\n2. Run the exact launcher with --version and --help. Check the installed version’s non-interactive mode and supported arguments. For Codex, run codex login status; --full-auto is obsolete in current versions. Gemini uses -p and, when supported, --output-format stream-json and --skip-trust for the explicitly chosen temporary task directory.\n3. For Gemini, inspect only the selected authentication method. Reuse the user’s existing launcher and home; never replace a working provider configuration or request a new API key unless that setup actually requires one.\n4. Check inherited proxy and certificate configuration, npm/fnm/nvm/Homebrew paths, and workspace trust. Do not disable TLS checks or use unrestricted permission modes as a workaround.\n5. Test in an empty folder: ask the CLI to reply exactly REDLINE_READY, without tools or files. A version response alone is not a successful service connection. State the exit code and whether the exact response arrived.\n6. Give one tested executable path and a non-interactive command template using {prompt}, {task}, {file}, {dir}, plus any necessary environment presence requirements. Do not include secret values. These can be entered in Proofline AI settings.\n7. Verify with a disposable Markdown copy. The original document must not change before the user accepts review.\n\nReport verified findings separately from guesses. Explain any remaining login or external service action. Ask before editing external tool configs. The JSON deliberately excludes credentials, task prompts and document contents.\n';
+        const task = '# Stetwise CLI connection diagnosis\n\nRead diagnostics.json. Diagnose why Stetwise cannot start the user’s existing AI CLI. Do not read user documents or print credentials.\n\n1. Identify the actual working command or launcher. Compare executable path, wrapper variables (especially GEMINI_CLI_HOME), Node runtime and current directory with Stetwise. Do not dump a full environment, auth file or .env. Check presence of needed variables without printing values.\n2. Run the exact launcher with --version and --help. Check the installed version’s non-interactive mode and supported arguments. For Codex, run codex login status; --full-auto is obsolete in current versions. Gemini uses -p and, when supported, --output-format stream-json and --skip-trust for the explicitly chosen temporary task directory.\n3. For Gemini, inspect only the selected authentication method. Reuse the user’s existing launcher and home; never replace a working provider configuration or request a new API key unless that setup actually requires one.\n4. Check inherited proxy and certificate configuration, npm/fnm/nvm/Homebrew paths, and workspace trust. Do not disable TLS checks or use unrestricted permission modes as a workaround.\n5. Test in an empty folder: ask the CLI to reply exactly STETWISE_READY, without tools or files. A version response alone is not a successful service connection. State the exit code and whether the exact response arrived.\n6. Give one tested executable path and a non-interactive command template using {prompt}, {task}, {file}, {dir}, plus any necessary environment presence requirements. Do not include secret values. These can be entered in Stetwise AI settings.\n7. Verify with a disposable Markdown copy. The original document must not change before the user accepts review.\n\nReport verified findings separately from guesses. Explain any remaining login or external service action. Ask before editing external tool configs. The JSON deliberately excludes credentials, task prompts and document contents.\n';
         await fs.writeFile(path.join(dir, 'TASK.md'), task, 'utf8');
         await shell.openPath(dir); return { ok: true, path: dir };
       }
@@ -232,8 +272,8 @@ else {
         return { ok: true };
       }
       if (operation === 'cancel') return agents.cancel(parameters[0]);
-      if (operation === 'clipboard') { clipboard.writeText(String(parameters[0] ?? '')); return { ok: true }; }
-      if (operation === 'readClipboard') return { text: clipboard.readText(), html: clipboard.readHTML() };
+      if (operation === 'clipboard') { await clipboard.writeText(String(parameters[0] ?? '')); return { ok: true }; }
+      if (operation === 'readClipboard') return { text: await clipboard.readText(), html: await readClipboardHtml() };
       throw new Error('Unknown agent operation');
     });
     // Look for local AI tools in the background so the send dialog opens instantly.
@@ -264,9 +304,9 @@ else {
       if (operation === 'openStorage') { await fs.mkdir(dataStore.root, { recursive: true }); return shell.openPath(dataStore.root); }
       if (operation === 'chooseStorage') {
         if (agents.starting || agents.runs.size || dataStore.jobs.size) throw new Error('请等当前任务或保存完成');
-        const choice = await dialog.showOpenDialog(window, { title: '选择 Proofline 数据目录', properties: ['openDirectory', 'createDirectory'] });
+        const choice = await dialog.showOpenDialog(window, { title: '选择 Stetwise 数据目录', properties: ['openDirectory', 'createDirectory'] });
         if (choice.canceled) return null;
-        const root = path.join(choice.filePaths[0], 'ProoflineData');
+        const root = path.join(choice.filePaths[0], 'StetwiseData');
         if (root === dataStore.root) return dataStore.status();
         if (inside(dataStore.root, root) || inside(root, dataStore.root)) throw new Error('请选择当前数据目录之外的文件夹');
         const next = new DataStore(root);
@@ -277,7 +317,7 @@ else {
         dataStore = next; files.dataStore = next; agents.store = next; return next.status();
       }
       if (operation === 'openDefaultApps') {
-        if (process.platform === 'win32') await shell.openExternal('ms-settings:defaultapps?registeredAppUser=Proofline');
+        if (process.platform === 'win32') await shell.openExternal('ms-settings:defaultapps?registeredAppUser=Stetwise');
         return { ok: true };
       }
       throw new Error('Unknown system operation');
@@ -299,7 +339,7 @@ else {
     ipcMain.on('mengx:finish-close', async (event, result) => {
       if (!trusted(event) || !awaitingClose) return;
       if (result?.unsaved) {
-        const choice = await dialog.showMessageBox(window, { type: 'warning', title: 'Proofline', message: '还有修改未写入原文件',
+        const choice = await dialog.showMessageBox(window, { type: 'warning', title: 'Stetwise', message: '还有修改未写入原文件',
           detail: '修改尚未写入原文件。可继续阅读并处理保存问题，或先导出副本。应用会尝试保留本机恢复草稿，但存储失败时无法保证恢复。', buttons: ['继续阅读', '仍然关闭'], defaultId: 0, cancelId: 0 });
         if (choice.response !== 1) { awaitingClose = false; return; }
       }
@@ -370,7 +410,7 @@ else {
           if (bytes.length > 64 * 1024 * 1024 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('Invalid image data');
           const bitmap = nativeImage.createFromBuffer(bytes);
           if (bitmap.isEmpty()) throw new Error('Image unavailable');
-          clipboard.writeImage(bitmap);
+          await clipboard.write([new ClipboardItem({ 'image/png': new Blob([bitmap.toPNG()], { type: 'image/png' }) })]);
           return { ok: true };
         }
         case 'revealResource': {
@@ -378,19 +418,38 @@ else {
           return { ok: true };
         }
         case 'saveExport': {
-          const name = path.basename(parameters[0]);
+          const name = path.basename(parameters[0]), options = parameters[2] || {};
           if (!/\.(md|pdf|docx)$/i.test(name) && !/\.annotations\.json$/i.test(name)) throw new Error('Unsupported export format');
           let filename;
           if (exportDirectory) { await fs.mkdir(exportDirectory, { recursive: true }); filename = path.join(exportDirectory, name); }
           else {
-            const choice = await dialog.showSaveDialog(window, { title: '保存导出副本', defaultPath: name,
+            // Start next to the document, titled in the interface language.
+            const near = options.documentId ? files.records.get(String(options.documentId))?.path : null;
+            const choice = await dialog.showSaveDialog(window, { title: String(options.title || '保存导出副本').slice(0, 80), defaultPath: near ? path.join(path.dirname(near), name) : name,
               filters: [{ name: name.endsWith('.pdf') ? 'PDF' : name.endsWith('.docx') ? 'Word' : name.endsWith('.json') ? 'Annotations' : 'Markdown', extensions: [name.endsWith('.pdf') ? 'pdf' : name.endsWith('.docx') ? 'docx' : name.endsWith('.json') ? 'json' : 'md'] }] });
             if (choice.canceled) return { ok: false, cancelled: true };
             filename = choice.filePath;
           }
           const bytes = new Uint8Array(parameters[1]);
           await fs.writeFile(filename, bytes);
+          exportedFiles.add(filename);
           return { ok: true, path: filename, bytes: bytes.length, name };
+        }
+        case 'revealExport': {
+          const target = String(parameters[0] || '');
+          if (!exportedFiles.has(target)) throw new Error('Only files exported in this session can be shown');
+          shell.showItemInFolder(target);
+          return { ok: true };
+        }
+        case 'openExported': {
+          // A file the user just saved through our dialog may be opened as a document.
+          const target = String(parameters[0] || '');
+          if (!exportedFiles.has(target) || !/\.(md|txt)$/i.test(target)) throw new Error('Only a document exported in this session can be opened this way');
+          return files.grant(target);
+        }
+                case 'copyRich': {
+          await clipboard.write([new ClipboardItem({ 'text/html': String(parameters[0] || ''), 'text/plain': String(parameters[1] || '') })]);
+          return { ok: true };
         }
         default: throw new Error('Unknown desktop operation');
       }

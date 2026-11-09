@@ -1,4 +1,4 @@
-// Desktop marks live in installation ProoflineData; legacy document sidecars are
+// Desktop marks live in installation StetwiseData; legacy document sidecars are
 // imported on first open. Web previews use browser storage.
 // The reader keeps a synchronous in-memory cache and persists in the background.
 import { ANNOTATIONS_KEY } from '../reading-annotations';
@@ -44,7 +44,7 @@ export function serializeSidecar(name, items) {
 export function parseSidecar(text) {
   const data = JSON.parse(text);
   const list = Array.isArray(data) ? data : data?.marks;
-  if (!Array.isArray(list)) throw new Error('Invalid Proofline sidecar');
+  if (!Array.isArray(list)) throw new Error('Invalid Stetwise sidecar');
   return list.map(normalizeMark).filter(Boolean);
 }
 

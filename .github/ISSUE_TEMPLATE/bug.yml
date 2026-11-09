@@ -1,9 +1,9 @@
 name: Bug report
-description: Something in Proofline does not work as expected
+description: Something in Stetwise does not work as expected
 body:
   - type: input
     id: system
-    attributes: { label: System and Proofline version / 系统与版本 }
+    attributes: { label: System and Stetwise version / 系统与版本 }
     validations: { required: true }
   - type: textarea
     id: steps

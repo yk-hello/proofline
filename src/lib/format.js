@@ -21,7 +21,7 @@ export function formatRecentTime(value, language) {
 
 export function formatRecentPath(value, language) {
   if (value === 'Local file') return language === 'zh' ? '本地文件' : 'Local file';
-  return value.replace(/^(?:Morrow|MENG X|Redline)/, 'Proofline');
+  return value.replace(/^(?:Morrow|MENG X|Redline)/, 'Stetwise');
 }
 
 export function formatMetaTime(value, language) {

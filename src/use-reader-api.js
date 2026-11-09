@@ -41,6 +41,8 @@ export function useReaderApi(handlers, state) {
       if (!Array.isArray(args)) throw Object.assign(new TypeError('Command args must be an array'), { code: 'invalid-argument' });
       return api[method](...args);
     };
+    window.stetwiseReader = api;
+    // Earlier names of the same object, for scripts written against older versions.
     window.prooflineReader = api;
     window.mengxReader = api;
     const onCommand = async ({ detail = {} }) => {
@@ -58,6 +60,7 @@ export function useReaderApi(handlers, state) {
     window.addEventListener('mengx-reader:command', onCommand);
     return () => {
       window.removeEventListener('mengx-reader:command', onCommand);
+      if (window.stetwiseReader === api) delete window.stetwiseReader;
       if (window.prooflineReader === api) delete window.prooflineReader;
       if (window.mengxReader === api) delete window.mengxReader;
     };

@@ -1,4 +1,4 @@
-export const DEMO_DOCUMENT = `# 欢迎使用 Proofline
+export const DEMO_DOCUMENT = `# 欢迎使用 Stetwise
 
 > 读 AI 写的文档，标出要改的地方，一键交给 AI，再逐处审阅。
 
@@ -13,7 +13,7 @@ export const DEMO_DOCUMENT = `# 欢迎使用 Proofline
 如果「交给 AI 修改」里没有出现你在用的命令行 AI，让它自己帮你查。打开你平时和它对话的终端，把下面这段话发给它：
 
 ~~~text
-我要在 Proofline（本地 Markdown 审阅软件）里以非交互方式调用你修改文档。请在这台电脑上实际运行验证，不要猜：
+我要在 Stetwise（本地 Markdown 审阅软件）里以非交互方式调用你修改文档。请在这台电脑上实际运行验证，不要猜：
 1. 找到我启动你用的可执行文件或启动脚本的完整绝对路径（Windows 用 where / Get-Command，macOS 用 which；.cmd、.ps1、脚本或 alias 要找到真正的入口）。
 2. 用这个完整路径运行 --version，告诉我输出。
 3. 用完整路径以非交互方式运行一次，只回复 READY，告诉我实际命令和输出。
@@ -39,7 +39,7 @@ AI 只会改你选中的那几个字：选中「36361」里的第二个 6，就�
 
 图表的数据就是一张普通表格，上面加一行隐藏标记。在别的软件里它仍然是表格；在这里显示成图表，点「数据」可以看表格，点「对图表下指令」可以让 AI 改数据。
 
-<!-- proofline:chart type=bar title="季度销售额" unit="万元" -->
+<!-- stetwise:chart type=bar title="季度销售额" unit="万元" -->
 | 季度 | 线上 | 门店 |
 |---|---:|---:|
 | Q1 | 80 | 40 |
@@ -57,7 +57,7 @@ AI 只会改你选中的那几个字：选中「36361」里的第二个 6，就�
 
 \`\`\`js
 // 代码块也会高亮
-const review = await redline.send({ agent: 'claude-code', scope: 'file' });
+const review = await stetwise.send({ agent: 'claude-code', scope: 'file' });
 \`\`\`
 
 ---`;
@@ -88,8 +88,8 @@ export const REFERENCE_RELEASE = `# 发布说明
 - 用于快速修正的直接阅读修改`;
 
 export const INITIAL_RECENTS = [
-  { name: '欢迎使用 Proofline.md', path: 'Proofline / 示例', type: 'MD', time: 'just-now', active: true },
-  { name: '发布说明.md', path: 'Proofline / 产品', type: 'MD', time: 'yesterday' },
-  { name: '阅读器架构.txt', path: 'Proofline / 规范', type: 'TXT', time: 'oct-01' },
-  { name: '排版检查清单.md', path: 'Proofline / 笔记', type: 'MD', time: 'sep-29' },
+  { name: '欢迎使用 Stetwise.md', path: 'Stetwise / 示例', type: 'MD', time: 'just-now', active: true },
+  { name: '发布说明.md', path: 'Stetwise / 产品', type: 'MD', time: 'yesterday' },
+  { name: '阅读器架构.txt', path: 'Stetwise / 规范', type: 'TXT', time: 'oct-01' },
+  { name: '排版检查清单.md', path: 'Stetwise / 笔记', type: 'MD', time: 'sep-29' },
 ];

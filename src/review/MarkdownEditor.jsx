@@ -9,7 +9,7 @@ import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history';
 import katex from 'katex';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
-import { diffBlocks, splitBlocks } from '../../electron/redline-core.mjs';
+import { diffBlocks, splitBlocks } from '../../electron/review-core.mjs';
 
 const LABELS = {
   zh: { placeholder: '输入正文，或输入 / 插入标题、列表、表格、公式…', text: '正文', h: (n) => `标题 ${n}`, quote: '引用', divider: '分隔线', textGroup: '文字',
@@ -29,7 +29,7 @@ const LABELS = {
  */
 // The editor writes a blank line between a chart directive and its table; keep them
 // together so block counts match the original and untouched blocks stay byte-for-byte.
-export const tidyEditorMarkdown = (markdown) => markdown.replace(/(<!--\s*proofline:chart\b[^>]*-->)[ \t]*\n(?:[ \t]*\n)+(?=[ \t]{0,3}\|)/g, '$1\n');
+export const tidyEditorMarkdown = (markdown) => markdown.replace(/(<!--\s*(?:stetwise|proofline):chart\b[^>]*-->)[ \t]*\n(?:[ \t]*\n)+(?=[ \t]{0,3}\|)/g, '$1\n');
 
 export function preserveUntouched(original, normalized, edited) {
   const raw = splitBlocks(original), norm = splitBlocks(normalized);
@@ -93,7 +93,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ value, language = 'z
           advancedGroup: { label: copy.advanced, image: { label: copy.image }, codeBlock: { label: copy.code }, table: { label: copy.table }, math: { label: copy.math } },
           // Charts are Markdown tables with a directive line, so they stay editable as tables.
           buildMenu: (builder) => {
-            const group = builder.addGroup('proofline-charts', copy.chartGroup);
+            const group = builder.addGroup('stetwise-charts', copy.chartGroup);
             const run = (markdown) => (ctx) => { ctx.get(commandsCtx).call(clearTextInCurrentBlockCommand.key); insert(`${markdown}\n\n`)(ctx); };
             for (const [type, label] of Object.entries(copy.charts)) group.addItem(`chart-${type}`, { label, icon: CHART_ICONS[type] || CHART_ICONS.bar, onRun: run(chartMarkdown(type, language)) });
             group.addItem('stats-table', { label: copy.stats, icon: CHART_ICONS.table, onRun: run(statsTableMarkdown(language)) });

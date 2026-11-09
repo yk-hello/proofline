@@ -4,6 +4,11 @@ import { REDLINE_TYPES, isRedline } from './marks';
 import { t, typeLabel } from './copy';
 
 const TYPES = [...REDLINE_TYPES, 'highlight', 'underline', 'note'];
+// Things people ask for most often, one click each.
+const PHRASES = {
+  zh: { fix: ['更简洁', '更正式', '补充具体数据', '核实事实', '修正语病'], expand: ['举一个例子', '补充数据', '解释原因', '分成几点说明'], ask: ['这样写对吗？', '有没有出处？', '有更好的说法吗？'], free: ['改成表格', '改成要点列表', '翻译成英文', '统一术语'] },
+  en: { fix: ['More concise', 'More formal', 'Add concrete figures', 'Check the facts', 'Fix the grammar'], expand: ['Add an example', 'Add figures', 'Explain why', 'Break into points'], ask: ['Is this right?', 'Is there a source?', 'Is there a better way to say it?'], free: ['Make it a table', 'Make it a bullet list', 'Translate into English', 'Make terms consistent'] },
+};
 
 /** Floating panel for one mark. Opens from a click on any painted mark or right after
  * creating one, so a mark can always be changed or removed where it is. */
@@ -39,7 +44,7 @@ export default function MarkPopover({ mark, number, anchorRect, language, autoFo
   return <div ref={ref} className="mark-popover" role="dialog" aria-label={t(language, 'markActions')} style={position}
     onKeyDown={(event) => {
       if (event.key === 'Escape') { event.stopPropagation(); commit(); onClose(); }
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit(); onClose(); }
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit(); if (isRedline(mark.type) && onSend) onSend(); else onClose(); }
     }}>
     <div className="mark-popover-head">
       <span className={`mark-chip type-${mark.type}`}>{number ? `#${number} · ` : ''}{typeLabel(language, mark.type)}</span>
@@ -56,11 +61,17 @@ export default function MarkPopover({ mark, number, anchorRect, language, autoFo
       <textarea ref={noteRef} value={draft} rows={3} maxLength={10000} placeholder={isRedline(mark.type) ? t(language, `placeholder.${mark.type}`) : t(language, 'placeholder.note')}
         onChange={(event) => setDraft(event.target.value)} onBlur={commit} />
     </label>}
+    {showsNote && (PHRASES[language] || PHRASES.zh)[mark.type] && <div className="mark-phrases" role="group" aria-label={language === 'zh' ? '常用要求' : 'Common requests'}>
+      {(PHRASES[language] || PHRASES.zh)[mark.type].map((phrase) => <button key={phrase} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+        const next = draft.trim() ? (draft.includes(phrase) ? draft : `${draft.trim()}${language === 'zh' ? '；' : '; '}${phrase}`) : phrase;
+        setDraft(next); onChangeNote(next); noteRef.current?.focus();
+      }}>{phrase}</button>)}
+    </div>}
     {mark.status === 'question' && mark.question && <div className="mark-answer mark-question"><strong>{t(language, 'aiQuestion')}</strong><p>{mark.question}</p></div>}
     {mark.answer && <div className="mark-answer"><strong>{t(language, 'aiAnswer')}</strong><p>{mark.answer}</p></div>}
     <div className="mark-popover-actions">
       <button className="danger-text" onClick={onRemove}><Trash2 size={14} />{t(language, 'removeMark')}<kbd>Del</kbd></button>
-      {isRedline(mark.type) && onSend && <button className="primary-small" onClick={() => { commit(); onSend(); }}><Send size={14} />{t(language, 'sendThis')}</button>}
+      {isRedline(mark.type) && onSend && <button className="primary-small" onClick={() => { commit(); onSend(); }} title={`${t(language, 'sendThis')} · Ctrl Enter`}><Send size={14} />{t(language, 'sendThis')}<kbd>Ctrl ↵</kbd></button>}
     </div>
   </div>;
 }

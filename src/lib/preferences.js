@@ -16,7 +16,7 @@ export function normalizeReadingPreferences(value = {}) {
     fontSize: ['small', 'medium', 'large'].includes(value.fontSize) ? value.fontSize : READING_PREFERENCE_DEFAULTS.fontSize,
     lineHeight: ['tight', 'comfortable', 'relaxed'].includes(value.lineHeight) ? value.lineHeight : READING_PREFERENCE_DEFAULTS.lineHeight,
     paragraphSpacing: ['compact', 'comfortable', 'airy'].includes(value.paragraphSpacing) ? value.paragraphSpacing : READING_PREFERENCE_DEFAULTS.paragraphSpacing,
-    background: 'white',
+    background: ['white', 'sepia'].includes(value.background) ? value.background : 'white',
     codeSize: ['small', 'medium', 'large'].includes(value.codeSize) ? value.codeSize : 'medium',
   };
 }
@@ -33,7 +33,7 @@ export function readReadingPreferences(key = '') {
         (name === 'fontSize' && ['small', 'medium', 'large'].includes(value)) ||
         (name === 'lineHeight' && ['tight', 'comfortable', 'relaxed'].includes(value)) ||
         (name === 'paragraphSpacing' && ['compact', 'comfortable', 'airy'].includes(value)) ||
-        (name === 'background' && value === 'white') ||
+        (name === 'background' && ['white', 'sepia'].includes(value)) ||
         (name === 'codeSize' && ['small', 'medium', 'large'].includes(value))) result[name] = value;
     return result;
   }, globalPreferences);

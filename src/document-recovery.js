@@ -21,7 +21,8 @@ export async function getRecovery(key) {
     request.onerror = () => reject(request.error);
   });
 }
-export function storeRecovery(key, source, { saved = false, reason = 'autosave' } = {}) {
+export const MAX_VERSIONS = 30;
+export function storeRecovery(key, source, { saved = false, reason = 'autosave', coalesceMs = 0 } = {}) {
   const operation = queue.catch(() => {}).then(async () => {
     const db = await open();
     return new Promise((resolve, reject) => {
@@ -30,9 +31,16 @@ export function storeRecovery(key, source, { saved = false, reason = 'autosave' 
       request.onsuccess = () => {
         const record = request.result || { key, versions: [], draft: null };
         if (saved) {
-          if (record.versions.at(-1)?.source !== source) record.versions.push({ id: crypto.randomUUID(), source, at: Date.now(), reason });
+          const last = record.versions.at(-1);
+          // A burst of outside writes (an AI saving after every edit) becomes one version.
+          if (last && coalesceMs && last.reason === reason && Date.now() - last.at < coalesceMs) {
+            Object.assign(last, { source, at: Date.now() });
+            // Undo then redo can land back on the version before: keep one copy.
+            if (record.versions.at(-2)?.source === source) record.versions.pop();
+          }
+          else if (last?.source !== source) record.versions.push({ id: crypto.randomUUID(), source, at: Date.now(), reason });
           let bytes = record.versions.reduce((n, v) => n + v.source.length * 2, 0);
-          while (record.versions.length > 1 && (record.versions.length > 8 || bytes > 32 * 1024 * 1024)) bytes -= record.versions.shift().source.length * 2;
+          while (record.versions.length > 1 && (record.versions.length > MAX_VERSIONS || bytes > 32 * 1024 * 1024)) bytes -= record.versions.shift().source.length * 2;
           if (record.draft?.source === source) record.draft = null;
         } else record.draft = { source, at: Date.now(), reason };
         record.updatedAt = Date.now();
@@ -45,6 +53,36 @@ export function storeRecovery(key, source, { saved = false, reason = 'autosave' 
   });
   queue = operation;
   return operation;
+}
+
+/** Keep an unfinished review (decisions included) so it survives closing the window. */
+export function storePendingReview(key, review) {
+  const operation = queue.catch(() => {}).then(async () => {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('documents', 'readwrite'), store = transaction.objectStore('documents');
+      const request = store.get(key);
+      request.onsuccess = () => {
+        const record = request.result || { key, versions: [], draft: null };
+        if (review) record.review = { ...review, at: Date.now() }; else delete record.review;
+        store.put(record);
+      };
+      transaction.oncomplete = () => resolve({ ok: true });
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Review storage unavailable'));
+    });
+  });
+  queue = operation;
+  return operation;
+}
+
+export async function getPendingReview(key) {
+  return (await getRecovery(key)).review || null;
+}
+
+export async function versionSource(key, id) {
+  const record = await getRecovery(key);
+  return (id === 'draft' ? record.draft : record.versions.find((entry) => entry.id === id))?.source ?? null;
 }
 
 export async function recoveryVersions(key) {

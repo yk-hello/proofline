@@ -9,7 +9,7 @@ on:
       release_name:
         description: Release name
         required: true
-        default: Proofline 0.4.0
+        default: Stetwise 0.4.0
 permissions:
   contents: write
 concurrency:

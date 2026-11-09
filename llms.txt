@@ -1,8 +1,8 @@
-# Proofline
+# Stetwise
 
 > Local-first desktop app (Windows, macOS) for reviewing AI-written Markdown: mark what should change, send the instructions to an AI command-line tool already signed in on the user's machine (Claude Code, Codex, Gemini CLI and others), then accept or reject each change before it is written back. Edits stay inside the exact text the user selected. Apache-2.0.
 
-Proofline does not publish installers. To install it for a user, build it from source on the user's own computer: follow AGENTS.md. It takes a few minutes and needs Node.js 22+.
+Stetwise does not publish installers. To install it for a user, build it from source on the user's own computer: follow AGENTS.md. It takes a few minutes and needs Node.js 22+.
 
 ## For AI assistants
 
@@ -11,6 +11,6 @@ Proofline does not publish installers. To install it for a user, build it from s
 ## Docs
 
 - [README](https://github.com/yk-hello/proofline/blob/main/README.md): features, platform status, usage, what to do when a CLI is not detected (中文 / English)
-- [CLI integration](https://github.com/yk-hello/proofline/blob/main/docs/CLI_INTEGRATION.md): how Proofline calls AI CLIs and how to add one
+- [CLI integration](https://github.com/yk-hello/proofline/blob/main/docs/CLI_INTEGRATION.md): how Stetwise calls AI CLIs and how to add one
 - [Automation API](https://github.com/yk-hello/proofline/blob/main/docs/AI_API.md): page API and JSON Lines command session for scripts and agents
 - [Contributing](https://github.com/yk-hello/proofline/blob/main/CONTRIBUTING.md)

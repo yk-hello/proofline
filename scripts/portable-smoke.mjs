@@ -20,7 +20,7 @@ const server = createServer();
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 const port = server.address().port;
 await new Promise((resolve) => server.close(resolve));
-const environment = { ...process.env, MENGX_DEV_URL: '' };
+const environment = { ...process.env, STETWISE_DEV_URL: '' };
 delete environment.ELECTRON_RUN_AS_NODE;
 // The portable launcher does not forward Electron's debugger messages to stdout.
 const child = spawn(executable, ['--automation', ...(visible ? [] : ['--hidden']), '--user-data', userData,

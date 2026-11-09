@@ -8,7 +8,7 @@ export function renderMermaidSvg(source) {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', look: 'classic', htmlLabels: false, maxTextSize: 8000,
         flowchart: { htmlLabels: false }, themeVariables: { fontFamily: 'Noto Sans SC Variable, sans-serif', fontSize: '13px',
           primaryColor: '#f5f6f7', primaryTextColor: '#202124', primaryBorderColor: '#c8cbd0', lineColor: '#60646a',
-          // Same categorical order as Proofline charts (charts.js).
+          // Same categorical order as Stetwise charts (charts.js).
           ...Object.fromEntries(['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'].flatMap((color, index) => [[`pie${index + 1}`, color], [`cScale${index}`, color]])),
           pieStrokeColor: '#fcfcfb', pieStrokeWidth: '2px', pieOuterStrokeWidth: '0', pieSectionTextColor: '#ffffff', pieTitleTextSize: '15px',
           xyChart: { plotColorPalette: '#2a78d6, #eb6834, #1baf7a, #eda100, #e87ba4, #008300, #6250d6, #e34948' } } });

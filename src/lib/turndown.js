@@ -35,7 +35,7 @@ turndown.addRule('readerTable', {
 });
 turndown.addRule('readerChart', {
   filter: (node) => node.nodeName === 'DIV' && node.classList.contains('pl-chart-block'),
-  replacement: (content, node) => `\n\n<!-- proofline:chart ${node.dataset.chartSpec || ''} -->\n${content.trim()}\n\n`,
+  replacement: (content, node) => `\n\n<!-- stetwise:chart ${node.dataset.chartSpec || ''} -->\n${content.trim()}\n\n`,
 });
 turndown.addRule('readerDefinitions', {
   filter: 'dl',

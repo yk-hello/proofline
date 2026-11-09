@@ -6,8 +6,8 @@
 
 - Apple Silicon（Darwin arm64）：`npm run test:mac-host` 七阶段（contracts、core、storage、adapters、web-build、desktop、native）全部退出码 0，报告为 `macHostVerified: true`。
 - arm64 打包应用：通过自定义命令调用真实 Hermes CLI，完成修改副本 → 显示差异 → 接受后写回；接受前原文未变。Hermes 不是内置适配器。
-- [PR #4](https://github.com/yk-hello/proofline/pull/4) 已修复 Hermes 任务工作目录与成功任务误报网络失败；修复后 Mac host 验证及真实 Hermes CLI 回归通过（退出码 0、diagnostic 为 null、副本改动而原文未变）。此前的打包应用 UI 测试与修复后 CLI 回归是两次独立验证。
-- [0.4.0 Release](https://github.com/yk-hello/proofline/releases/tag/v0.4.0) 已发布 macOS x64 / arm64 DMG、ZIP；[云构建](https://github.com/yk-hello/proofline/actions/runs/41033258513) 成功。发布附件未逐个在本机安装验证，不以构建成功代替完整真机通过。当前 Release 不含 universal，且未签名、未公证。
+- [PR #4](https://github.com/yk-hello/stetwise/pull/4) 已修复 Hermes 任务工作目录与成功任务误报网络失败；修复后 Mac host 验证及真实 Hermes CLI 回归通过（退出码 0、diagnostic 为 null、副本改动而原文未变）。此前的打包应用 UI 测试与修复后 CLI 回归是两次独立验证。
+- [0.4.0 Release](https://github.com/yk-hello/stetwise/releases/tag/v0.4.0) 已发布 macOS x64 / arm64 DMG、ZIP；[云构建](https://github.com/yk-hello/stetwise/actions/runs/41033258513) 成功。发布附件未逐个在本机安装验证，不以构建成功代替完整真机通过。当前 Release 不含 universal，且未签名、未公证。
 
 以下“本轮”指 2026-10-28 的历史模拟验证；最新状态以上述更新和文末表格为准。
 

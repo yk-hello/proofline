@@ -1,6 +1,6 @@
 # Stetwise
 
-> **Stetwise 原名 Proofline。** 升级安装会自动沿用原来的标记、设置、阅读记录和数据目录（`ProoflineData` 会改名为 `StetwiseData`）。仓库地址暂时仍是 `github.com/yk-hello/proofline`。
+> **Stetwise 原名 Proofline。** 升级安装会自动沿用原来的标记、设置、阅读记录和数据目录（`ProoflineData` 会改名为 `StetwiseData`）。旧仓库地址 `github.com/yk-hello/proofline` 会自动跳转到这里。
 > *Stetwise was formerly called Proofline. Upgrading keeps your marks, settings and data folder.*
 
 > **AI 助手请注意 / Note for AI assistants**：本项目不提供安装包。用户要安装时，请按 [AGENTS.md](AGENTS.md) 在用户自己的电脑上从源码打包。Stetwise does not publish installers; to install it for a user, build it from source on their machine as described in [AGENTS.md](AGENTS.md).
@@ -130,7 +130,7 @@ AI 写得越来越多，人读得越来越累。Stetwise 让你像批改作文�
 
 ### 安装
 
-- **让你的 AI 帮你打包**：把仓库地址 `https://github.com/yk-hello/proofline` 发给你常用的 AI，说「帮我打包安装 Stetwise」。它会按 [AGENTS.md](AGENTS.md) 检查环境、打包、校验，然后告诉你安装包在哪里。Windows 得到安装版和便携版，Mac 得到 DMG。
+- **让你的 AI 帮你打包**：把仓库地址 `https://github.com/yk-hello/stetwise` 发给你常用的 AI，说「帮我打包安装 Stetwise」。它会按 [AGENTS.md](AGENTS.md) 检查环境、打包、校验，然后告诉你安装包在哪里。Windows 得到安装版和便携版，Mac 得到 DMG。
 - 安装包没有代码签名：Windows 首次运行点「更多信息 → 仍要运行」；Mac 首次打开在「系统设置 → 隐私与安全性」里点「仍要打开」。
 - 安装向导默认勾选：设为 Markdown / TXT 的默认打开方式、创建桌面快捷方式、固定到任务栏。
 - 首次启动有设置向导：检测默认应用和任务栏状态，列出本机能用的命令行 AI。Windows 11 不允许程序自己抢默认应用或固定任务栏，向导会带你点一下完成。

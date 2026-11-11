@@ -95,7 +95,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon-mac.png",
       "category": "public.app-category.productivity",
       "artifactName": "Stetwise-${version}-mac-${arch}.${ext}",
       "identity": null,

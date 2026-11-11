@@ -3,16 +3,19 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const { PNG } = require('pngjs');
 const out = process.argv[2];
-const icon = (size, radius) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024">
-<rect width="1024" height="1024" rx="${radius}" fill="#0A0A0A"/>
+// A lighter keyline keeps the outline of the black tile on a dark taskbar or Dock.
+const EDGE = '#4A4A4A';
+// `inset` leaves the margin macOS expects around an app icon (the artwork fills about 80% of the canvas).
+const icon = (size, radius, { inset = 0, edge = true } = {}) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024"><g transform="translate(${inset} ${inset}) scale(${(1024 - 2 * inset) / 1024})">
+<rect width="1024" height="1024" rx="${radius}" fill="#0A0A0A"/>${edge ? `<rect x="14" y="14" width="996" height="996" rx="${Math.max(0, radius - 14)}" fill="none" stroke="${EDGE}" stroke-width="28"/>` : ''}
 <rect x="232" y="318" width="560" height="68" fill="#FFFFFF"/>
 <rect x="232" y="478" width="560" height="68" fill="#FFFFFF"/>
 <rect x="232" y="638" width="340" height="68" fill="#FFFFFF"/>
 <line x1="196" y1="830" x2="828" y2="198" stroke="#FF2D1A" stroke-width="118" stroke-linecap="butt"/>
-</svg>`;
+</g></svg>`;
 // Small sizes get a simpler mark so the lines stay crisp.
 const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 32 32">
-<rect width="32" height="32" rx="${size <= 24 ? 4 : 6}" fill="#0A0A0A"/>
+<rect width="32" height="32" rx="${size <= 24 ? 4 : 6}" fill="#0A0A0A"/><rect x="0.5" y="0.5" width="31" height="31" rx="${size <= 24 ? 3.5 : 5.5}" fill="none" stroke="#5A5A5A"/>
 <rect x="7" y="9" width="18" height="3" fill="#FFF"/><rect x="7" y="15" width="18" height="3" fill="#FFF"/><rect x="7" y="21" width="10" height="3" fill="#FFF"/>
 <line x1="5.5" y1="27" x2="26.5" y2="6" stroke="#FF2D1A" stroke-width="4"/></svg>`;
 (async () => {
@@ -30,6 +33,8 @@ const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}"
   }
   await render(icon(1024, 224), 1024, 1024, `${out}/icon.png`);
   await render(icon(512, 224), 512, 512, `${out}/icon-512.png`);
+  // macOS draws no margin of its own: without one the icon looks larger than its neighbours in the Dock.
+  await render(icon(1024, 228, { inset: 100 }), 1024, 1024, `${out}/icon-mac.png`);
   const sizes = [16, 24, 32, 48, 64, 128, 256];
   const pngs = [];
   for (const size of sizes) pngs.push(await render(size <= 32 ? small(size) : icon(size, 180), size, size));
@@ -49,7 +54,7 @@ const small = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}"
   const font = "font-family:'Inter Tight',Arial,sans-serif";
   const headerHtml = `<div style="width:150px;height:57px;background:#fff;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;box-sizing:border-box;border-bottom:3px solid #0A0A0A">${small(30)}<span style="${font};font-weight:900;font-size:15px;letter-spacing:-0.5px;margin-left:7px;color:#0A0A0A">STETWISE</span></div>`;
   const sideHtml = `<div style="width:164px;height:314px;background:#0A0A0A;display:flex;flex-direction:column;justify-content:space-between;padding:22px 18px;box-sizing:border-box;color:#fff;${font}">
-    <div>${icon(56, 0).replace('fill="#0A0A0A"', 'fill="#0A0A0A" stroke="#ffffff" stroke-width="40"')}</div>
+    <div>${icon(56, 0, { edge: false }).replace('fill="#0A0A0A"', 'fill="#0A0A0A" stroke="#ffffff" stroke-width="40"')}</div>
     <div><div style="font-weight:900;font-size:22px;letter-spacing:-0.5px;line-height:1">STETWISE</div><div style="margin-top:8px;font-size:11px;color:#bdbdbd;line-height:1.5">Read. Mark. Revise.</div><div style="margin-top:14px;height:6px;background:#FF2D1A;width:56px"></div></div></div>`;
   for (const [html, w, h, name] of [[headerHtml, 150, 57, 'installer-header.bmp'], [sideHtml, 164, 314, 'installer-sidebar.bmp']]) {
     const png = PNG.sync.read(await render(html, w, h, null, false));

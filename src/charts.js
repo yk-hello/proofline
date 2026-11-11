@@ -246,6 +246,47 @@ export function hydrateChart(block, labels = {}) {
   });
 }
 
+// Drawn diagrams by source. A long document mounts and unmounts its parts while scrolling;
+// a diagram seen before is shown at once, at its final height, instead of being drawn again.
+const diagramCache = new Map();
+const DIAGRAM_CACHE_CHARS = 6_000_000;
+let diagramCacheChars = 0;
+function rememberDiagram(code, svg) {
+  if (svg.length > DIAGRAM_CACHE_CHARS / 4) return;
+  if (diagramCache.has(code)) diagramCacheChars -= diagramCache.get(code).length;
+  diagramCache.delete(code); diagramCache.set(code, svg); diagramCacheChars += svg.length;
+  for (const [key, value] of diagramCache) { if (diagramCacheChars <= DIAGRAM_CACHE_CHARS) break; diagramCache.delete(key); diagramCacheChars -= value.length; }
+}
+
+function scrollParent(node) {
+  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+    if (parent.scrollHeight > parent.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(parent).overflowY)) return parent;
+  }
+  return null;
+}
+
+/**
+ * Apply a change that alters the height of `block` without moving the text the reader is
+ * looking at, when the block lies above the visible part of the page. The long-document
+ * view corrects parts that are entirely above the page itself; this covers the part the
+ * page top currently cuts through, and documents small enough to be shown in one piece.
+ */
+function holdView(block, change) {
+  const scroller = scrollParent(block), chunk = block.closest('.large-document-chunk');
+  // What follows the block: the next visible sibling, else the bottom of its container.
+  let follower = block.nextElementSibling;
+  while (follower && !follower.getClientRects().length) follower = follower.nextElementSibling;
+  const container = block.parentElement;
+  const mark = () => (follower?.isConnected && follower.getClientRects().length ? follower.getBoundingClientRect().top : container.getBoundingClientRect().bottom);
+  if (!scroller || !container) { change(); return; }
+  const top = scroller.getBoundingClientRect().top, before = mark();
+  const above = before <= top + 1 && (!chunk || chunk.getBoundingClientRect().bottom > top);
+  change();
+  if (!above) return;
+  const moved = mark() - before;
+  if (Math.abs(moved) >= 1) scroller.scrollTop += moved;
+}
+
 /** Mermaid code blocks: draw the diagram in a sibling shadow host; the code stays as the source. */
 export function hydrateMermaid(pre, render, labels = {}) {
   if (pre.dataset.diagramState) return;
@@ -263,9 +304,18 @@ export function hydrateMermaid(pre, render, labels = {}) {
     pre.classList.add('diagram-source-visible'); view.setAttribute('aria-pressed', 'true');
     pre.dispatchEvent(new CustomEvent('stetwise:select-component', { bubbles: true, composed: true, detail: { node: pre.querySelector('code') || pre } }));
   });
-  render(code).then((svg) => {
-    root.querySelector('.chart').innerHTML = svg; pre.dataset.diagramState = 'rendered'; pre.classList.add('diagram-rendered');
-  }).catch((error) => { root.querySelector('.chart').innerHTML = `<div class="error">${esc(labels.failed || '图表无法渲染')}：${esc(error.message || '')}</div>`; pre.dataset.diagramState = 'failed'; });
+  const show = (svg) => { root.querySelector('.chart').innerHTML = svg; pre.dataset.diagramState = 'rendered'; pre.classList.add('diagram-rendered'); };
+  const cached = diagramCache.get(code);
+  // Same frame as the text around it, so there is nothing to shift afterwards.
+  if (cached) { show(cached); return; }
+  render(code, { wanted: () => pre.isConnected }).then((svg) => {
+    rememberDiagram(code, svg);
+    if (pre.isConnected) holdView(pre, () => show(svg));
+  }).catch((error) => {
+    // Scrolled away before its turn: the part of the page it was in is gone.
+    if (error?.name === 'DiagramSkipped' || !pre.isConnected) return;
+    root.querySelector('.chart').innerHTML = `<div class="error">${esc(labels.failed || '图表无法渲染')}：${esc(error.message || '')}</div>`; pre.dataset.diagramState = 'failed';
+  });
 }
 
 /** Render every chart and diagram under root (idempotent; safe to call after each update). */

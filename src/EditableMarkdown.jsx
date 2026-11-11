@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef } from 'react';
 
 export default function EditableMarkdown({ html, text, plain = false, region = 'article', editable, className,
-  elementRef, onBeforeInput, onInput, onClick }) {
+  elementRef, onBeforeInput, onInput, onClick, note }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
     const node = ref.current;
@@ -11,6 +11,6 @@ export default function EditableMarkdown({ html, text, plain = false, region = '
   }, [html, text, plain]);
   const Tag = plain ? 'pre' : 'div';
   return <Tag ref={(node) => { ref.current = node; if (elementRef) elementRef.current = node; }}
-    className={className} data-edit-region={region} contentEditable={editable ? (plain ? 'plaintext-only' : true) : false} suppressContentEditableWarning spellCheck={false}
+    className={className} data-edit-region={region} data-note={note || undefined} contentEditable={editable ? (plain ? 'plaintext-only' : true) : false} suppressContentEditableWarning spellCheck={false}
     onBeforeInput={onBeforeInput} onInput={onInput} onClick={onClick} />;
 }

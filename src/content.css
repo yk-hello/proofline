@@ -68,6 +68,8 @@
 .large-document-chunk[data-index="0"] h1:first-child { display: none; }
 .large-document-chunk[data-index]:not([data-index="0"]) > div > :first-child { margin-top: 24px; }
 .large-plain-block { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Generated text, so it is never part of the selection, a mark or the document itself. */
+.large-plain-block[data-note]::before { content: attr(data-note); display: block; margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--line-mid); background: var(--panel-2); color: var(--secondary); font: 400 13px/1.5 var(--reader-font); white-space: normal; }
 .source-document { --reader-font: var(--mono), "Noto Sans SC Variable", monospace; }
 .reading-layout .source-document pre.source-plain-block { min-height: 24px; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--paper); color: var(--body); font-family: var(--reader-font); font-size: 14px; line-height: 25px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .large-document-loading { min-height: 300px; display: grid; place-content: center; color: var(--secondary); }

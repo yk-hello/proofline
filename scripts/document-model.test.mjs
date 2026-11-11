@@ -53,3 +53,23 @@ console.log(JSON.stringify({ bytes: Buffer.byteLength(large), chunks: model.chun
   if (model.wordCount > 20) throw new Error(`base64 counted as words: ${model.wordCount}`);
   console.log('large picture line ok');
 }
+{
+  // Only the oversized block falls back to plain text; the heading and paragraph before it stay formatted.
+  const table = ['| 序号 | 数值 |', '| ---: | ---: |', ...Array.from({ length: 4000 }, (_, row) => `| ${row + 1} | ${row * 97} |`)].join('\n');
+  const source = `# 报告\n\n开头的说明文字。\n\n## 明细\n\n${table}\n\n## 结论\n\n结尾。\n`;
+  const model = analyzeDocument(source);
+  checkCoverage(source, model);
+  assert.deepEqual(model.outline.map((heading) => heading.text), ['报告', '明细', '结论']);
+  assert.equal(model.chunks[0].plain, false, 'text before the oversized table keeps its formatting');
+  assert.ok(source.slice(model.chunks[0].start, model.chunks[0].end).includes('## 明细'));
+  assert.ok(!source.slice(model.chunks[0].start, model.chunks[0].end).includes('| 序号 |'));
+  assert.equal(model.chunks[1].plain, true);
+  assert.ok(source.slice(model.chunks[1].start, model.chunks[1].end).trimStart().startsWith('| 序号 |'));
+  assert.equal(model.chunks[model.outline[2].chunk].plain, false, 'the section after the table is formatted again');
+  const code = `# 代码\n\n说明。\n\n\`\`\`js\n${'const value = 1;\n'.repeat(6000)}\`\`\`\n\n## 之后\n\n完。\n`;
+  const codeModel = analyzeDocument(code);
+  checkCoverage(code, codeModel);
+  assert.equal(codeModel.chunks[0].plain, false);
+  assert.ok(code.slice(codeModel.chunks[1].start, codeModel.chunks[1].end).trimStart().startsWith('```js'));
+  console.log('oversized block keeps preceding text formatted ok');
+}

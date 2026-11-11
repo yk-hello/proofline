@@ -4,7 +4,7 @@ import EditableMarkdown from './EditableMarkdown';
 import { textMatches } from './search';
 import { sourceForChunk } from './document-model';
 
-const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode }) {
+const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode, plainNote }) {
   const plain = sourceMode || chunk.plain;
   const html = useMemo(() => plain ? '' : renderMarkdown(sourceForChunk(source, chunk, { referenceDefinitions: definitions }), query, searchOffset, chunk.headingStart, chunk),
     [source, definitions, chunk, query, searchOffset, renderMarkdown, plain]);
@@ -28,11 +28,12 @@ const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOpt
   }, [plain, sourceMode, plainSource, query, searchOptions, searchOffset]);
   return <EditableMarkdown plain={plain} html={plain ? plainHtml : draft?.html ?? html}
     className={sourceMode ? 'large-plain-block source-plain-block' : chunk.plain ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
+    note={!sourceMode && chunk.plain ? plainNote : undefined}
     onBeforeInput={onBeforeInput} onInput={(event) => onInput?.(chunk, event.currentTarget, plain)} onClick={onClick} />;
 });
 
 export default function LargeDocumentView({ markdown, model, query, searchOptions, activeIndex, results, headingTarget,
-  articleRef, scrollContainerRef, navigationRef, renderMarkdown, onArticleClick, reference = false, editable = false, drafts, onInput, onBeforeInput, searchNavigation, sourceMode = false }) {
+  articleRef, scrollContainerRef, navigationRef, renderMarkdown, onArticleClick, reference = false, editable = false, drafts, onInput, onBeforeInput, searchNavigation, sourceMode = false, plainNote }) {
   const ref = useRef(null);
   const [margin, setMargin] = useState(0);
   const cancelNavigationRef = useRef(() => {});
@@ -173,6 +174,9 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
     return navigateTo({ chunk: item.chunk, selector: `[data-heading="${item.slug}"]` });
   }, [headingTarget, markdown]);
 
+  // The note about a block too large to format is said once, where the block begins.
+  const startsPlainBlock = (index) => model.chunks[index].plain && !model.chunks[index - 1]?.plain;
+
   return <div ref={(node) => { ref.current = node; if (articleRef) articleRef.current = node; }}
     className={`large-document-viewport document-content ${reference ? 'reference-content' : ''} ${sourceMode ? 'source-document' : ''}`}>
     <div className="large-document-space" style={{ height: virtualizer.getTotalSize() }}>
@@ -180,7 +184,8 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
         ref={virtualizer.measureElement} data-index={row.index} data-chunk={row.index}
         style={{ transform: `translateY(${row.start - margin}px)` }}>
         <Chunk source={markdown} definitions={model.referenceDefinitions} chunk={model.chunks[row.index]} query={query} searchOptions={searchOptions} searchOffset={offsets.get(row.index) || 0}
-          renderMarkdown={renderMarkdown} onClick={onArticleClick} editable={editable} drafts={drafts} onInput={onInput} onBeforeInput={onBeforeInput} sourceMode={sourceMode} />
+          renderMarkdown={renderMarkdown} onClick={onArticleClick} editable={editable} drafts={drafts} onInput={onInput} onBeforeInput={onBeforeInput} sourceMode={sourceMode}
+          plainNote={startsPlainBlock(row.index) ? plainNote : undefined} />
       </div>)}
     </div>
   </div>;

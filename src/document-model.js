@@ -13,6 +13,8 @@ export function analyzeDocument(source, progress = () => {}) {
   let fence = null, wordCount = 0, summary = '', title = '', lastProgress = -1;
   let chunkPlain = false, continuedLine = false;
   let previousLine = null, definition = null;
+  // The last place the current chunk could be cut without splitting a block (a blank line or a heading).
+  let boundary = 0, boundaryLine = 0, boundaryHeading = 0;
   function flush(end) {
     if (end <= start) return;
     const chars = end - start;
@@ -39,6 +41,7 @@ export function analyzeDocument(source, progress = () => {}) {
     const heading = !fence && !oversizedLine && /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(raw);
     const setext = !fence && !oversizedLine && /^ {0,3}(=+|-+)[ \t]*$/.exec(raw)
       && previousLine && previousLine.text.trim() && !/^\s*(?:[#>|]|[-*+]\s|\d+\.\s|\[.*\]:)/.test(previousLine.text);
+    if (!fence && !oversizedLine && (heading || !raw.trim())) { boundary = offset; boundaryLine = line; boundaryHeading = outline.length; }
     // Split at structural boundaries, leaving normal tables, lists, quotes and fences whole.
     if (!fence && offset - start >= 5000 && (heading || !raw.trim())) flush(offset);
     const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(raw);
@@ -71,7 +74,17 @@ export function analyzeDocument(source, progress = () => {}) {
     offset = next;
     // An enormous single block still gets bounded rendering; its fallback is plain text.
     if (oversizedLine || offset - start >= 40000) {
-      if (Boolean(fence) || (!heading && !imageLine) || oversizedLine) chunkPlain = true;
+      const oversizedBlock = Boolean(fence) || (!heading && !imageLine) || oversizedLine;
+      // Only the oversized block itself falls back to plain text: what stands before it in
+      // this chunk (headings, paragraphs) is cut off first and keeps its formatting.
+      if (oversizedBlock && !chunkPlain && !oversizedLine && boundary > start && boundary < offset) {
+        const chars = boundary - start;
+        chunks.push({ start, end: boundary, line: chunkLine, headingStart, plain: false,
+          height: Math.max(200, Math.min(6000, (boundaryLine - chunkLine) * 18 + chars / 45 * 8)) });
+        for (let index = boundaryHeading; index < outline.length; index++) outline[index].chunk += 1;
+        start = boundary; chunkLine = boundaryLine; headingStart = boundaryHeading;
+      }
+      if (oversizedBlock) chunkPlain = true;
       flush(offset);
     }
     const percent = Math.floor(offset / Math.max(source.length, 1) * 100);

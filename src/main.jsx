@@ -893,7 +893,7 @@ function App() {
     const labels = language === 'zh'
       ? { data: '数据', source: '源码', mark: '对图表下指令', markHint: '选中整个图表的数据，给 AI 下指令', failed: '图表无法渲染' }
       : { data: 'Data', source: 'Source', mark: 'Instruct on chart', markHint: 'Select the whole chart data to give the AI an instruction', failed: 'Diagram could not be rendered' };
-    const renderMermaid = (source) => import('./mermaid-renderer').then(({ renderMermaidSvg }) => renderMermaidSvg(source));
+    const renderMermaid = (source, options) => import('./mermaid-renderer').then(({ renderMermaidSvg }) => renderMermaidSvg(source, { ...options, waitForScroll: true }));
     const tableLabels = language === 'zh'
       ? { sum: '合计', average: '平均', insert: '插入为合计行', insertHint: '把合计写进文档，作为表格最后一行', sortHint: '点击排序（只改变显示顺序，不改文档）' }
       : { sum: 'Total', average: 'Average', insert: 'Insert as total row', insertHint: 'Write the totals into the document as the last table row', sortHint: 'Click to sort (display only; the document is unchanged)' };
@@ -1059,11 +1059,28 @@ function App() {
       const text = passage.textContent.trim().slice(0, 100);
       const start = Number(passage.closest('[data-edit-region]')?.dataset.editRegion) || 0;
       try { result.anchor = createTextAnchor(sourceBaseRef.current, { text, sourceOffset: start, regionStart: start, regionEnd: start + (isLargeDocument ? 80000 : sourceBaseRef.current.length) }); } catch { /* scroll offset remains usable */ }
-      result.passageOffset = passage.getBoundingClientRect().top - top;
+      result.passageOffset = passageTextTop(passage) - top;
     }
     result.heading = activeOutline;
     readingPositionCacheRef.current = { key: cacheKey, position: result };
     return result;
+  }
+
+  /**
+   * Top of a passage's first line of text. A saved position is found again by its text
+   * (findRenderedAnchor), so it is measured on the text too: a block's padding, or a note
+   * generated above it, would otherwise move the page a little on every return.
+   */
+  function passageTextTop(passage) {
+    const walker = document.createTreeWalker(passage, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.nodeValue.search(/\S/);
+      if (at < 0) continue;
+      const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + 1);
+      const box = range.getBoundingClientRect();
+      if (box.height) return box.top;
+    }
+    return passage.getBoundingClientRect().top;
   }
 
   function getReferencePosition() {
@@ -1079,7 +1096,7 @@ function App() {
       const start = Number(passage.closest('[data-edit-region]')?.dataset.editRegion) || 0;
       try { result.anchor = createTextAnchor(referenceMarkdown, { text: passage.textContent.trim().slice(0, 100), sourceOffset: start,
         regionStart: start, regionEnd: referenceAnalysis.large ? start + 80000 : referenceMarkdown.length }); } catch { /* Pixel and chunk positions remain usable. */ }
-      result.passageOffset = passage.getBoundingClientRect().top - top;
+      result.passageOffset = passageTextTop(passage) - top;
     }
     referencePositionCacheRef.current = { key, position: result };
     return result;
@@ -4016,7 +4033,7 @@ function App() {
                 <button onClick={() => switchRichPart(richPart.index + 1)} disabled={richPart.index >= richPart.count - 1}>{zh ? '下一部分' : 'Next'}<ArrowRight size={14} /></button>
               </nav>}
               {usingRichEditor ? (richPart ? <MarkdownEditor key={`${currentDocumentKey}:${editorKey}`} ref={editorRef} value={richPart.base.slice(richPart.start, richPart.end)} language={language} onChange={handleRichChange} resolveImage={(source) => resolveDocumentAsset(source)} onUpload={saveDocumentImage} onError={setNotice} /> : null) :
-                (isLargeDocument || sourceView) && !documentAnalysis.ready ? <div className="large-document-loading"><p>{copy.preparingDocument} {documentAnalysis.progress}%</p></div> : (isLargeDocument || sourceView) ? <LargeDocumentView sourceMode={sourceView} key={`${currentDocumentKey}:${sourceView}`} markdown={markdown} model={documentAnalysis} query={activeSearchQuery} searchOptions={searchOptions} activeIndex={searchIndex} searchNavigation={searchNavigation} results={searchResults} headingTarget={headingTarget} articleRef={articleRef} scrollContainerRef={readingScrollRef} navigationRef={readingNavigationRef} onArticleClick={handleArticleClick} renderMarkdown={renderChunk} editable={!readingMode} drafts={chunkDraftsRef} onBeforeInput={handleBeforeInput} onInput={handleChunkInput} /> : <EditableMarkdown
+                (isLargeDocument || sourceView) && !documentAnalysis.ready ? <div className="large-document-loading"><p>{copy.preparingDocument} {documentAnalysis.progress}%</p></div> : (isLargeDocument || sourceView) ? <LargeDocumentView sourceMode={sourceView} key={`${currentDocumentKey}:${sourceView}`} markdown={markdown} model={documentAnalysis} query={activeSearchQuery} searchOptions={searchOptions} activeIndex={searchIndex} searchNavigation={searchNavigation} results={searchResults} headingTarget={headingTarget} articleRef={articleRef} scrollContainerRef={readingScrollRef} navigationRef={readingNavigationRef} onArticleClick={handleArticleClick} renderMarkdown={renderChunk} editable={!readingMode} drafts={chunkDraftsRef} onBeforeInput={handleBeforeInput} onInput={handleChunkInput} plainNote={copy.plainBlockNote} /> : <EditableMarkdown
                   key={currentDocumentKey}
                   elementRef={articleRef}
                   className={`document-content ${readingMode ? 'reading-locked' : 'content-editable'}`}
@@ -4030,7 +4047,7 @@ function App() {
 
             {splitView && <section className="reference-column" ref={referenceScrollRef} tabIndex={0} aria-label={zh ? '右侧阅读区' : 'Right reading pane'}>
               <div className="reference-header"><div><span className="reference-kicker">{copy.reference}</span><strong>{referenceName}</strong></div><button className={`icon-button quiet ${splitSync ? 'active' : ''}`} aria-label={zh ? '同步滚动' : 'Sync scrolling'} aria-pressed={splitSync} title={zh ? '同步滚动' : 'Sync scrolling'} onClick={() => setSplitSync((v) => !v)}><AlignLeft size={16} /></button><button className="icon-button quiet" aria-label={zh ? '交换左右文档' : 'Swap documents'} title={zh ? '交换左右文档' : 'Swap documents'} onClick={() => void swapSplit()}><Split size={16} /></button><button className="icon-button quiet" onClick={closeSplit} aria-label={copy.closeSplit} title={copy.closeSplit}><X size={16} /></button></div>
-              {referenceAnalysis.large ? referenceAnalysis.ready && <LargeDocumentView key={`${referenceName}:${referenceMeta?.path}`} markdown={referenceMarkdown} model={referenceAnalysis} query="" activeIndex={0} results={[]} reference articleRef={referenceArticleRef} scrollContainerRef={referenceScrollRef} navigationRef={referenceNavigationRef} renderMarkdown={renderReferenceChunk} onArticleClick={handleReferenceClick} /> : <article ref={referenceArticleRef} className="reference-content document-content" onClick={handleReferenceClick} dangerouslySetInnerHTML={{ __html: renderedReference }} />}
+              {referenceAnalysis.large ? referenceAnalysis.ready && <LargeDocumentView key={`${referenceName}:${referenceMeta?.path}`} markdown={referenceMarkdown} model={referenceAnalysis} query="" activeIndex={0} results={[]} reference articleRef={referenceArticleRef} scrollContainerRef={referenceScrollRef} navigationRef={referenceNavigationRef} renderMarkdown={renderReferenceChunk} onArticleClick={handleReferenceClick} plainNote={copy.plainBlockNote} /> : <article ref={referenceArticleRef} className="reference-content document-content" onClick={handleReferenceClick} dangerouslySetInnerHTML={{ __html: renderedReference }} />}
               <button className="reference-switcher" onClick={openReferencePicker}><ChevronDown size={14} /> {copy.openReference}</button>
             </section>}
           </div>

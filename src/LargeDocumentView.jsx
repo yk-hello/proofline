@@ -4,8 +4,10 @@ import EditableMarkdown from './EditableMarkdown';
 import { textMatches } from './search';
 import { sourceForChunk } from './document-model';
 
-const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode, plainNote }) {
-  const plain = sourceMode || chunk.plain;
+const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode, note }) {
+  // While editing, a piece of a split table is edited as its own source rows.
+  const asSource = chunk.plain || (editable && Boolean(chunk.table));
+  const plain = sourceMode || asSource;
   const html = useMemo(() => plain ? '' : renderMarkdown(sourceForChunk(source, chunk, { referenceDefinitions: definitions }), query, searchOffset, chunk.headingStart, chunk),
     [source, definitions, chunk, query, searchOffset, renderMarkdown, plain]);
   const draft = drafts?.current.get(chunk.start);
@@ -27,13 +29,13 @@ const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOpt
     return container.innerHTML;
   }, [plain, sourceMode, plainSource, query, searchOptions, searchOffset]);
   return <EditableMarkdown plain={plain} html={plain ? plainHtml : draft?.html ?? html}
-    className={sourceMode ? 'large-plain-block source-plain-block' : chunk.plain ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
-    note={!sourceMode && chunk.plain ? plainNote : undefined}
+    className={sourceMode ? 'large-plain-block source-plain-block' : asSource ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
+    note={sourceMode ? undefined : note}
     onBeforeInput={onBeforeInput} onInput={(event) => onInput?.(chunk, event.currentTarget, plain)} onClick={onClick} />;
 });
 
 export default function LargeDocumentView({ markdown, model, query, searchOptions, activeIndex, results, headingTarget,
-  articleRef, scrollContainerRef, navigationRef, renderMarkdown, onArticleClick, reference = false, editable = false, drafts, onInput, onBeforeInput, searchNavigation, sourceMode = false, plainNote }) {
+  articleRef, scrollContainerRef, navigationRef, renderMarkdown, onArticleClick, reference = false, editable = false, drafts, onInput, onBeforeInput, searchNavigation, sourceMode = false, plainNote, chartNote }) {
   const ref = useRef(null);
   const [margin, setMargin] = useState(0);
   const cancelNavigationRef = useRef(() => {});
@@ -174,8 +176,14 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
     return navigateTo({ chunk: item.chunk, selector: `[data-heading="${item.slug}"]` });
   }, [headingTarget, markdown]);
 
-  // The note about a block too large to format is said once, where the block begins.
-  const startsPlainBlock = (index) => model.chunks[index].plain && !model.chunks[index - 1]?.plain;
+  // A block too large to format is shown as source text, and says so once, where it begins.
+  // A chart with too much data to draw is shown as its table, and says so above it.
+  const asSource = (chunk) => Boolean(chunk) && (chunk.plain || (editable && Boolean(chunk.table)));
+  const noteFor = (index) => {
+    const chunk = model.chunks[index];
+    if (asSource(chunk)) return asSource(model.chunks[index - 1]) ? undefined : plainNote;
+    return chunk.table?.chart ? chartNote : undefined;
+  };
 
   return <div ref={(node) => { ref.current = node; if (articleRef) articleRef.current = node; }}
     className={`large-document-viewport document-content ${reference ? 'reference-content' : ''} ${sourceMode ? 'source-document' : ''}`}>
@@ -185,7 +193,7 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
         style={{ transform: `translateY(${row.start - margin}px)` }}>
         <Chunk source={markdown} definitions={model.referenceDefinitions} chunk={model.chunks[row.index]} query={query} searchOptions={searchOptions} searchOffset={offsets.get(row.index) || 0}
           renderMarkdown={renderMarkdown} onClick={onArticleClick} editable={editable} drafts={drafts} onInput={onInput} onBeforeInput={onBeforeInput} sourceMode={sourceMode}
-          plainNote={startsPlainBlock(row.index) ? plainNote : undefined} />
+          note={noteFor(row.index)} />
       </div>)}
     </div>
   </div>;

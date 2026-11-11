@@ -52,6 +52,18 @@ export function safeMarkdown(markdown, query = '', resolveAsset, activeSearchInd
   });
   const container = document.createElement('div');
   container.innerHTML = sanitized;
+  // A piece of a table too large for one part of a long document (see analyzeDocument). A
+  // later piece was parsed with the table's header in front; the header is taken out again
+  // before search and marks see it, so it is neither found twice nor shown twice.
+  const tablePart = searchContext?.chunk?.table || searchContext?.tablePart;
+  const headLength = tablePart?.headEnd ? tablePart.headEnd - tablePart.headStart : 0;
+  if (tablePart) {
+    const table = container.querySelector('table');
+    if (table) {
+      table.classList.add('pl-table-part');
+      if (headLength) { table.classList.add('pl-table-continued'); table.tHead?.remove(); }
+    }
+  }
   container.querySelectorAll('img[src]').forEach((image) => {
     const source = image.getAttribute('src') || '';
     image.setAttribute('data-source', source);
@@ -157,7 +169,7 @@ export function safeMarkdown(markdown, query = '', resolveAsset, activeSearchInd
     const end = searchContext.chunk ? searchContext.chunk.end - start : markdown.length;
     // Search anchors are resolved against the rendered chunk, so keep the
     // source slice in the same coordinate space as the chunk-local offsets.
-    const source = markdown.slice(0, end);
+    const source = markdown.slice(headLength, headLength + end);
     const hits = searchContext.results.filter((item) => item.offset >= start && item.offset < start + end);
     const remaining = new Map(hits.map((item) => [item.offset - start, item]));
     const matchedHitIndexes = new Set();

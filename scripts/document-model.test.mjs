@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { analyzeDocument, searchDocument } from '../src/document-model.js';
+import { analyzeDocument, searchDocument, sourceForChunk } from '../src/document-model.js';
 
 function checkCoverage(source, model) {
   let end = 0;
@@ -63,13 +63,34 @@ console.log(JSON.stringify({ bytes: Buffer.byteLength(large), chunks: model.chun
   assert.equal(model.chunks[0].plain, false, 'text before the oversized table keeps its formatting');
   assert.ok(source.slice(model.chunks[0].start, model.chunks[0].end).includes('## 明细'));
   assert.ok(!source.slice(model.chunks[0].start, model.chunks[0].end).includes('| 序号 |'));
-  assert.equal(model.chunks[1].plain, true);
-  assert.ok(source.slice(model.chunks[1].start, model.chunks[1].end).trimStart().startsWith('| 序号 |'));
-  assert.equal(model.chunks[model.outline[2].chunk].plain, false, 'the section after the table is formatted again');
+  // The table itself is cut between rows; every piece can be drawn as a table.
+  assert.ok(model.chunks.every((chunk) => !chunk.plain), 'a large table no longer falls back to plain text');
+  const pieces = model.chunks.filter((chunk) => chunk.table);
+  const head = '| 序号 | 数值 |\n| ---: | ---: |\n';
+  assert.ok(pieces.length > 4, `expected several table pieces, got ${pieces.length}`);
+  assert.equal(pieces[0].table.first, true);
+  assert.ok(source.slice(pieces[0].start, pieces[0].end).startsWith(`${head}| 1 | 0 |`));
+  for (const piece of pieces.slice(1)) {
+    assert.equal(source.slice(piece.table.headStart, piece.table.headEnd), head);
+    assert.match(source.slice(piece.start, piece.end), /^\| \d+ \| \d+ \|\n/, 'a piece starts at a row');
+    assert.ok(source.slice(piece.start, piece.end).endsWith('|\n'), 'a piece ends at a row');
+    assert.ok(sourceForChunk(source, piece, model).startsWith(`${head}| `));
+  }
+  assert.equal(pieces.map((piece) => source.slice(piece.start, piece.end)).join(''), `${table}\n`, 'the pieces are the table, nothing lost');
+  assert.ok(pieces.every((piece) => piece.end - piece.start < 16000));
+  assert.ok(!model.chunks[model.outline[2].chunk].table, 'the section after the table is an ordinary chunk');
+  // A chart directive above a table this large: the table is shown, and the first piece says so.
+  const charted = `# 图\n\n<!-- stetwise:chart type=bar -->\n${table}\n\n完。\n`;
+  const chartedModel = analyzeDocument(charted);
+  checkCoverage(charted, chartedModel);
+  assert.equal(chartedModel.chunks.find((chunk) => chunk.table).table.chart, true);
+  // An ordinary table is left whole.
+  const small = `# 小表\n\n${table.split('\n').slice(0, 300).join('\n')}\n\n完。\n`;
+  assert.ok(analyzeDocument(small).chunks.every((chunk) => !chunk.table && !chunk.plain));
   const code = `# 代码\n\n说明。\n\n\`\`\`js\n${'const value = 1;\n'.repeat(6000)}\`\`\`\n\n## 之后\n\n完。\n`;
   const codeModel = analyzeDocument(code);
   checkCoverage(code, codeModel);
   assert.equal(codeModel.chunks[0].plain, false);
   assert.ok(code.slice(codeModel.chunks[1].start, codeModel.chunks[1].end).trimStart().startsWith('```js'));
-  console.log('oversized block keeps preceding text formatted ok');
+  console.log('oversized table is cut between rows, text before a large block stays formatted ok');
 }

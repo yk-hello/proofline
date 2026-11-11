@@ -69,7 +69,13 @@
 .large-document-chunk[data-index]:not([data-index="0"]) > div > :first-child { margin-top: 24px; }
 .large-plain-block { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Generated text, so it is never part of the selection, a mark or the document itself. */
-.large-plain-block[data-note]::before { content: attr(data-note); display: block; margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--line-mid); background: var(--panel-2); color: var(--secondary); font: 400 13px/1.5 var(--reader-font); white-space: normal; }
+.large-document-chunk [data-edit-region][data-note]::before { content: attr(data-note); display: block; margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--line-mid); background: var(--panel-2); color: var(--secondary); font: 400 13px/1.5 var(--reader-font); white-space: normal; }
+/* A table too large for one part of a long document is drawn in pieces that join into one
+   table: equal columns, so the pieces line up, and no gap between them. */
+.document-content table.pl-table-part { table-layout: fixed; margin-bottom: 0; }
+.document-content table.pl-table-part :is(th, td) { min-width: 0; overflow-wrap: anywhere; }
+.document-content .large-document-chunk[data-index] > [data-edit-region] > table.pl-table-continued:first-child { margin-top: 0; }
+.document-content .large-document-chunk[data-index] > [data-edit-region][data-note] > table.pl-table-part { margin-top: 0; }
 .source-document { --reader-font: var(--mono), "Noto Sans SC Variable", monospace; }
 .reading-layout .source-document pre.source-plain-block { min-height: 24px; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--paper); color: var(--body); font-family: var(--reader-font); font-size: 14px; line-height: 25px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .large-document-loading { min-height: 300px; display: grid; place-content: center; color: var(--secondary); }

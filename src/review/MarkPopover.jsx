@@ -1,13 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Trash2, X, Send } from 'lucide-react';
-import { REDLINE_TYPES, isRedline } from './marks';
+import { isRedline } from './marks';
 import { t, typeLabel } from './copy';
 
-const TYPES = [...REDLINE_TYPES, 'highlight', 'underline', 'note'];
+// Fix carries any instruction, so there are three kinds to choose from. A mark made before
+// that (Expand, or a free instruction) keeps its kind and is offered here for that mark only.
+const TYPES = ['fix', 'delete', 'ask', 'highlight', 'underline', 'note'];
 // Things people ask for most often, one click each.
 const PHRASES = {
-  zh: { fix: ['更简洁', '更正式', '补充具体数据', '核实事实', '修正语病'], expand: ['举一个例子', '补充数据', '解释原因', '分成几点说明'], ask: ['这样写对吗？', '有没有出处？', '有更好的说法吗？'], free: ['改成表格', '改成要点列表', '翻译成英文', '统一术语'] },
-  en: { fix: ['More concise', 'More formal', 'Add concrete figures', 'Check the facts', 'Fix the grammar'], expand: ['Add an example', 'Add figures', 'Explain why', 'Break into points'], ask: ['Is this right?', 'Is there a source?', 'Is there a better way to say it?'], free: ['Make it a table', 'Make it a bullet list', 'Translate into English', 'Make terms consistent'] },
+  zh: { fix: ['更简洁', '更正式', '展开写充分', '改成表格', '核实事实', '修正语病'], expand: ['举一个例子', '补充数据', '解释原因', '分成几点说明'], ask: ['这样写对吗？', '有没有出处？', '有更好的说法吗？'], free: ['改成表格', '改成要点列表', '翻译成英文', '统一术语'] },
+  en: { fix: ['More concise', 'More formal', 'Expand this', 'Make it a table', 'Check the facts', 'Fix the grammar'], expand: ['Add an example', 'Add figures', 'Explain why', 'Break into points'], ask: ['Is this right?', 'Is there a source?', 'Is there a better way to say it?'], free: ['Make it a table', 'Make it a bullet list', 'Translate into English', 'Make terms consistent'] },
 };
 
 /** Floating panel for one mark. Opens from a click on any painted mark or right after
@@ -52,7 +54,7 @@ export default function MarkPopover({ mark, number, anchorRect, language, autoFo
       <button className="icon-button quiet" aria-label={t(language, 'close')} title={`${t(language, 'close')} · Esc`} onClick={() => { commit(); onClose(); }}><X size={15} /></button>
     </div>
     {!mark.anchor?.document && <div className="mark-type-row" role="group" aria-label={t(language, 'markType')}>
-      {TYPES.map((type) => <button key={type} className={`mark-type type-${type} ${mark.type === type ? 'selected' : ''}`} aria-pressed={mark.type === type}
+      {(TYPES.includes(mark.type) ? TYPES : [mark.type, ...TYPES]).map((type) => <button key={type} className={`mark-type type-${type} ${mark.type === type ? 'selected' : ''}`} aria-pressed={mark.type === type}
         onClick={() => { commit(); onChangeType(type); }} title={t(language, `typeHint.${type}`)}>
         <span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}
     </div>}

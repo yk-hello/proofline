@@ -6,7 +6,8 @@ import { _electron } from '@playwright/test';
 import { invokePage } from './page-command.mjs';
 
 export async function launchDesktop({ output, userData, visible = false, executablePath } = {}) {
-  const args = ['--automation', '--user-data', userData, '--export-directory', output];
+  // The checks read the interface in Chinese; the app itself starts in English.
+  const args = ['--automation', '--language', 'zh', '--user-data', userData, '--export-directory', output];
   if (!visible) args.push('--hidden');
   const environment = { ...process.env, STETWISE_DEV_URL: '' };
   delete environment.ELECTRON_RUN_AS_NODE;

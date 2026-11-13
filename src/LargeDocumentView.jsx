@@ -3,9 +3,12 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import EditableMarkdown from './EditableMarkdown';
 import { textMatches } from './search';
 import { sourceForChunk } from './document-model';
+import { highlightCodePiece } from './lib/render';
 
-const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode }) {
-  const plain = sourceMode || chunk.plain;
+const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode, note }) {
+  // While editing, a piece of a split table is edited as its own source rows.
+  const asSource = chunk.plain || (editable && Boolean(chunk.table));
+  const plain = sourceMode || asSource;
   const html = useMemo(() => plain ? '' : renderMarkdown(sourceForChunk(source, chunk, { referenceDefinitions: definitions }), query, searchOffset, chunk.headingStart, chunk),
     [source, definitions, chunk, query, searchOffset, renderMarkdown, plain]);
   const draft = drafts?.current.get(chunk.start);
@@ -26,13 +29,18 @@ const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOpt
     container.append(document.createTextNode(plainSource.slice(start)));
     return container.innerHTML;
   }, [plain, sourceMode, plainSource, query, searchOptions, searchOffset]);
-  return <EditableMarkdown plain={plain} html={plain ? plainHtml : draft?.html ?? html}
-    className={sourceMode ? 'large-plain-block source-plain-block' : chunk.plain ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
+  // A piece of a large code block is shown as code. While searching, or while it is being
+  // edited as text, it stays plain: matches and edits are counted in the plain text.
+  const asCode = !sourceMode && !editable && !query && chunk.plain && chunk.code !== undefined;
+  const codeHtml = useMemo(() => (asCode ? highlightCodePiece(plainSource, chunk.code) : ''), [asCode, plainSource, chunk.code]);
+  return <EditableMarkdown plain={plain} html={asCode ? codeHtml : plain ? plainHtml : draft?.html ?? html}
+    className={sourceMode ? 'large-plain-block source-plain-block' : asCode ? 'large-plain-block large-code-piece hljs' : asSource ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
+    note={sourceMode ? undefined : note}
     onBeforeInput={onBeforeInput} onInput={(event) => onInput?.(chunk, event.currentTarget, plain)} onClick={onClick} />;
 });
 
 export default function LargeDocumentView({ markdown, model, query, searchOptions, activeIndex, results, headingTarget,
-  articleRef, scrollContainerRef, navigationRef, renderMarkdown, onArticleClick, reference = false, editable = false, drafts, onInput, onBeforeInput, searchNavigation, sourceMode = false }) {
+  articleRef, scrollContainerRef, navigationRef, renderMarkdown, onArticleClick, reference = false, editable = false, drafts, onInput, onBeforeInput, searchNavigation, sourceMode = false, plainNote, chartNote }) {
   const ref = useRef(null);
   const [margin, setMargin] = useState(0);
   const cancelNavigationRef = useRef(() => {});
@@ -173,6 +181,16 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
     return navigateTo({ chunk: item.chunk, selector: `[data-heading="${item.slug}"]` });
   }, [headingTarget, markdown]);
 
+  // A block too large to format is shown as source text, and says so once, where it begins.
+  // A chart with too much data to draw is shown as its table, and says so above it.
+  const asSource = (chunk) => Boolean(chunk) && (chunk.plain || (editable && Boolean(chunk.table)));
+  const noteFor = (index) => {
+    const chunk = model.chunks[index];
+    // Code shown as code has lost nothing, so it needs no note.
+    if (asSource(chunk)) return asSource(model.chunks[index - 1]) || (chunk.code !== undefined && !editable) ? undefined : plainNote;
+    return chunk.table?.chart ? chartNote : undefined;
+  };
+
   return <div ref={(node) => { ref.current = node; if (articleRef) articleRef.current = node; }}
     className={`large-document-viewport document-content ${reference ? 'reference-content' : ''} ${sourceMode ? 'source-document' : ''}`}>
     <div className="large-document-space" style={{ height: virtualizer.getTotalSize() }}>
@@ -180,7 +198,8 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
         ref={virtualizer.measureElement} data-index={row.index} data-chunk={row.index}
         style={{ transform: `translateY(${row.start - margin}px)` }}>
         <Chunk source={markdown} definitions={model.referenceDefinitions} chunk={model.chunks[row.index]} query={query} searchOptions={searchOptions} searchOffset={offsets.get(row.index) || 0}
-          renderMarkdown={renderMarkdown} onClick={onArticleClick} editable={editable} drafts={drafts} onInput={onInput} onBeforeInput={onBeforeInput} sourceMode={sourceMode} />
+          renderMarkdown={renderMarkdown} onClick={onArticleClick} editable={editable} drafts={drafts} onInput={onInput} onBeforeInput={onBeforeInput} sourceMode={sourceMode}
+          note={noteFor(row.index)} />
       </div>)}
     </div>
   </div>;

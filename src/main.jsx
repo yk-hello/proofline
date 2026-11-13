@@ -9,9 +9,9 @@ import { DocumentWriter } from './document-writer';
 import { desktopHandle, chooseDesktopFile, chooseDesktopDirectory, restoreDesktopFile, openDesktopPath, saveDesktopExport } from './desktop-files';
 import { VirtualList } from './VirtualList';
 import { useReaderApi, waitForReader, pageOf, API_VERSION } from './use-reader-api';
-import { createTextAnchor, resolveTextAnchor, captureReadingSelection, findRenderedAnchor, paintReadingHighlights, clearReadingHighlights, hitTestMarks } from './reading-annotations';
+import { createTextAnchor, resolveTextAnchor, captureReadingSelection, findRenderedAnchor, paintReadingHighlights, clearReadingHighlights, hitTestMarks, paintRoundChanges, clearRoundChanges } from './reading-annotations';
 import { markStore, isRedline, numberRedlines, MARK_TYPES, REDLINE_STATUS, serializeSidecar } from './review/marks';
-import { buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors, hiddenContent, diffBlocks, rebaseChanges, positionHint, anchorOpen, anchorClose, tasksForHunk } from '../electron/review-core.mjs';
+import { roundRecord, composeReview, changeRisks, buildTasks, buildPrompt, parseReply, applyPatches, extractFullDocument, splitBlocks, blockAt, anchorDocument, resolveAnchors, stripAnchors, hiddenContent, diffBlocks, rebaseChanges, positionHint, anchorOpen, anchorClose, tasksForHunk } from '../electron/review-core.mjs';
 import { t as rt, typeLabel } from './review/copy';
 import { readAgentSettings, restoreAgentSettings } from './review/agents';
 import MarkPopover from './review/MarkPopover';
@@ -19,6 +19,8 @@ import InstructionRail from './review/InstructionRail';
 import SendDialog from './review/SendDialog';
 import ManualTransfer from './review/ManualTransfer';
 import ReviewView from './review/ReviewView';
+import ChangePopover from './review/ChangePopover';
+import { diffArrays } from 'diff';
 import RunPanel from './review/RunPanel';
 import AgentSettings from './review/AgentSettings';
 import MarkdownEditor from './review/MarkdownEditor';
@@ -85,10 +87,15 @@ import '@fontsource/jetbrains-mono/latin-500.css';
 import 'katex/dist/katex.min.css';
 import { htmlDocumentToMarkdown, htmlToMarkdown } from './lib/turndown';
 import { DOCUMENT_EXTENSIONS, READING_PREFERENCE_DEFAULTS, normalizeReadingPreferences, readReadingPreferences, readReadingWidth } from './lib/preferences';
-import { DEMO_DOCUMENT, REFERENCE_DOCUMENT, REFERENCE_RELEASE, INITIAL_RECENTS } from './lib/demo';
+import { DEMO_DOCUMENT, REFERENCE_DOCUMENT, REFERENCE_RELEASE } from './lib/demo';
+import { DEMO_DOCUMENT_EN, startLanguage, startSample } from './lib/demo-en';
+// A Markdown passage as the text a reader sees.
+const plainText = (markdown) => { const holder = document.createElement('div'); holder.innerHTML = safeMarkdown(markdown, '', () => ''); return holder.textContent || ''; };
+// The sample the app opens with, in the interface language it starts in.
+const START = startSample();
 import { UI } from './lib/i18n';
 import { headingSlug, normalizeResourceKey, documentCacheKey, safeMarkdown } from './lib/render';
-import { formatBytes, formatKindLabel, formatRecentTime, formatRecentPath, documentSummary, lightDocumentTitle, yieldToBrowser } from './lib/format';
+import { textAlignFor, shortPath, formatBytes, formatKindLabel, formatRecentTime, formatRecentPath, documentSummary, lightDocumentTitle, yieldToBrowser } from './lib/format';
 import { persistFileHandle, restoreFileHandle, forgetFileHandle } from './lib/handles';
 
 // Absolute paths on this computer: C:\... on Windows, /... on macOS and Linux desktops.
@@ -99,8 +106,8 @@ function isNativePath(value) {
 }
 
 function App() {
-  const initialKey = documentCacheKey('欢迎使用 Stetwise.md', 'Stetwise / 示例');
-  const [tabs, setTabs] = useState([{ id: initialKey, name: '欢迎使用 Stetwise.md', path: 'Stetwise / 示例', kind: 'MD' }]);
+  const initialKey = documentCacheKey(START.name, START.path);
+  const [tabs, setTabs] = useState([{ id: initialKey, name: START.name, path: START.path, kind: 'MD' }]);
   const tabsRef = useRef(tabs);
   const tabSessionsRef = useRef(new Map());
   const closedTabsRef = useRef([]);
@@ -152,6 +159,12 @@ function App() {
   // The last change applied to the document as a whole (outside program, review, revert):
   // shown as a bar with Compare and Undo, which also work in reading mode.
   const [round, setRound] = useState(null);
+  // The round of changes shown in the text (see paintRoundChanges), and the one that was clicked.
+  const roundChangesRef = useRef([]);
+  const [changePopover, setChangePopover] = useState(null);
+  // Reviews an AI in a terminal is waiting for (stetwise-review <file>): { folder, path }.
+  const [terminalReviews, setTerminalReviews] = useState([]);
+  useEffect(() => window.mengxDesktop?.onReviewRequest?.((request) => setTerminalReviews((list) => [...list.filter((item) => item.folder !== request.folder), request])), []);
   const roundRef = useRef(null);
   const [pendingReview, setPendingReview] = useState(null);
   const reviewProgressTimerRef = useRef(null);
@@ -180,12 +193,12 @@ function App() {
   const [noteDialog, setNoteDialog] = useState(null);
   const [annotationLabelDraft, setAnnotationLabelDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
-  const [markdown, setMarkdown] = useState(DEMO_DOCUMENT);
-  const [fileName, setFileName] = useState('欢迎使用 Stetwise.md');
-  const [fileMeta, setFileMeta] = useState({ size: 4820, source: 'Stetwise / 示例', updated: 'just-now', kind: 'MD' });
-  const [recentFiles, setRecentFiles] = useState(INITIAL_RECENTS);
+  const [markdown, setMarkdown] = useState(START.document);
+  const [fileName, setFileName] = useState(START.name);
+  const [fileMeta, setFileMeta] = useState({ size: 4820, source: START.path, updated: 'just-now', kind: 'MD' });
+  const [recentFiles, setRecentFiles] = useState(START.recents);
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
-  const [language, setLanguage] = useState(() => window.localStorage.getItem('morrow-language') || 'zh');
+  const [language, setLanguage] = useState(startLanguage);
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('mengx-sidebar-open') !== 'false');
   const [outlineOpen, setOutlineOpen] = useState(() => localStorage.getItem('mengx-focus-reading') !== 'true' && localStorage.getItem('mengx-outline-open') !== 'false');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -239,7 +252,7 @@ function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [readingWidth, setReadingWidth] = useState(() => window.localStorage.getItem('morrow-reading-width') || 'comfortable');
-  const [readingPreferences, setReadingPreferences] = useState(() => readReadingPreferences('欢迎使用 Stetwise.md'));
+  const [readingPreferences, setReadingPreferences] = useState(() => readReadingPreferences(START.name));
   const [focusMode, setFocusMode] = useState(() => window.localStorage.getItem('mengx-focus-reading') === 'true');
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [locationDraft, setLocationDraft] = useState('');
@@ -261,8 +274,8 @@ function App() {
   const editHistoriesRef = useRef(new Map());
   const editVersionsRef = useRef(new Map());
   const beforeInputRef = useRef(null);
-  const sourceBaseRef = useRef(DEMO_DOCUMENT);
-  const lastEditSnapshotRef = useRef({ markdown: DEMO_DOCUMENT, html: null, chunks: new Map(), selection: null });
+  const sourceBaseRef = useRef(START.document);
+  const lastEditSnapshotRef = useRef({ markdown: START.document, html: null, chunks: new Map(), selection: null });
   const autoSaveTimerRef = useRef(null);
   const autoSaveHandlerRef = useRef(null);
   const writerChangeRef = useRef(null);
@@ -288,6 +301,7 @@ function App() {
   const directoryHandleRef = useRef(null);
   const fileContentsRef = useRef(new Map([
     [normalizeResourceKey('欢迎使用 Stetwise.md'), DEMO_DOCUMENT],
+    [normalizeResourceKey('Welcome to Stetwise.md'), DEMO_DOCUMENT_EN],
     [normalizeResourceKey('安静的界面设计.md'), DEMO_DOCUMENT],
     [normalizeResourceKey('发布说明.md'), REFERENCE_RELEASE],
     [normalizeResourceKey('阅读器架构.txt'), REFERENCE_DOCUMENT],
@@ -712,11 +726,14 @@ function App() {
   const isLargeDocument = documentAnalysis.large;
   const usingRichEditor = !readingMode && !sourceView && ['MD', 'HTML', 'DOCX'].includes(fileMeta.kind || 'MD');
   const documentTitle = documentAnalysis.title || lightDocumentTitle(markdown, fileName);
+  // Ragged-right for English, justified for Chinese (see textAlignFor); inherited by every view of the document.
+  const documentAlign = useMemo(() => textAlignFor(markdown), [markdown]);
+  const referenceAlign = useMemo(() => textAlignFor(referenceMarkdown), [referenceMarkdown]);
   const renderChunk = useCallback((source, query = '', searchOffset = 0, headingOffset = 0, chunk) =>
     safeMarkdown(source, query, (path) => resolveDocumentAsset(path), -1, searchOffset, headingOffset, searchOptions,
       { chunk, definitions: documentAnalysis.referenceDefinitions, results: documentAnalysis.results }), [assetVersion, currentDocumentKey, searchOptions, documentAnalysis.results, documentAnalysis.referenceDefinitions]);
-  const renderReferenceChunk = useCallback((source, query = '', searchOffset = 0, headingOffset = 0) =>
-    safeMarkdown(source, query, (path) => resolveDocumentAsset(path, referenceMeta?.handle), -1, searchOffset, headingOffset), [assetVersion, referenceMeta]);
+  const renderReferenceChunk = useCallback((source, query = '', searchOffset = 0, headingOffset = 0, chunk) =>
+    safeMarkdown(source, query, (path) => resolveDocumentAsset(path, referenceMeta?.handle), -1, searchOffset, headingOffset, undefined, chunk?.table ? { tablePart: chunk.table } : null), [assetVersion, referenceMeta]);
   const referenceAnalysis = useDocumentPreparation(splitView ? referenceMarkdown : '');
   const renderedReference = useMemo(() => splitView && !referenceAnalysis.large ? renderReferenceChunk(referenceMarkdown) : '', [splitView, referenceAnalysis.large, referenceMarkdown, renderReferenceChunk]);
   const renderedDocument = useMemo(() => {
@@ -893,7 +910,7 @@ function App() {
     const labels = language === 'zh'
       ? { data: '数据', source: '源码', mark: '对图表下指令', markHint: '选中整个图表的数据，给 AI 下指令', failed: '图表无法渲染' }
       : { data: 'Data', source: 'Source', mark: 'Instruct on chart', markHint: 'Select the whole chart data to give the AI an instruction', failed: 'Diagram could not be rendered' };
-    const renderMermaid = (source) => import('./mermaid-renderer').then(({ renderMermaidSvg }) => renderMermaidSvg(source));
+    const renderMermaid = (source, options) => import('./mermaid-renderer').then(({ renderMermaidSvg }) => renderMermaidSvg(source, { ...options, waitForScroll: true }));
     const tableLabels = language === 'zh'
       ? { sum: '合计', average: '平均', insert: '插入为合计行', insertHint: '把合计写进文档，作为表格最后一行', sortHint: '点击排序（只改变显示顺序，不改文档）' }
       : { sum: 'Total', average: 'Average', insert: 'Insert as total row', insertHint: 'Write the totals into the document as the last table row', sortHint: 'Click to sort (display only; the document is unchanged)' };
@@ -974,6 +991,13 @@ function App() {
     return () => document.removeEventListener('pointerdown', close);
   }, [selectionContextMenu]);
 
+  // The round whose changes are shown in the text: an outside change, or a review that was applied.
+  const roundDiff = useMemo(() => {
+    if (!round || round.undone || round.key !== currentDocumentKey || !['external', 'review'].includes(round.kind) || round.previous === round.next) return null;
+    try { return { diff: diffBlocks(round.previous, round.next), next: round.next }; } catch { return null; }
+  }, [round, currentDocumentKey]);
+  useEffect(() => { if (!roundDiff) setChangePopover(null); }, [roundDiff]);
+
   useEffect(() => {
     const root = articleRef.current;
     if (!root || sourceView || usingRichEditor) { clearReadingHighlights(); paintedMarksRef.current = []; return; }
@@ -981,7 +1005,12 @@ function App() {
     let frame = 0;
     let secondFrame = 0;
     const region = readingScrollRef.current;
-    const paint = () => { paintedMarksRef.current = paintReadingHighlights(root, markStore.get(currentDocumentKey), getDocumentSource(), documentAnalysis.chunks, markPopover?.id || activeAnnotation); };
+    const paint = () => {
+      paintedMarksRef.current = paintReadingHighlights(root, markStore.get(currentDocumentKey), getDocumentSource(), documentAnalysis.chunks, markPopover?.id || activeAnnotation);
+      // The last round of changes stays visible in the text until its bar is dismissed or the text moves on.
+      if (roundDiff && getDocumentSource() === roundDiff.next) { try { roundChangesRef.current = paintRoundChanges(root, roundDiff.diff, documentAnalysis.chunks, plainText, diffArrays); } catch { roundChangesRef.current = []; clearRoundChanges(); } }
+      else { roundChangesRef.current = []; clearRoundChanges(); }
+    };
     paint();
     // The reader may render markdown and editable chunks in separate commits.
     // Paint once immediately and again after both commits have settled.
@@ -993,8 +1022,8 @@ function App() {
     const resize = new ResizeObserver(() => { clearTimeout(timer); timer = setTimeout(paint, 100); });
     resize.observe(root); if (region) resize.observe(region);
     observer.observe(root, { childList: true, subtree: true, characterData: true });
-    return () => { observer.disconnect(); resize.disconnect(); clearTimeout(timer); cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); clearReadingHighlights(); };
-  }, [currentDocumentKey, documentAnalysis.ready, documentAnalysis.chunks, annotationVersion, activeAnnotation, markPopover?.id, markdown, openGeneration, sourceView, readingMode, historyVersion, usingRichEditor, review]);
+    return () => { observer.disconnect(); resize.disconnect(); clearTimeout(timer); cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); clearReadingHighlights(); clearRoundChanges(); };
+  }, [currentDocumentKey, documentAnalysis.ready, documentAnalysis.chunks, annotationVersion, activeAnnotation, markPopover?.id, markdown, openGeneration, sourceView, readingMode, historyVersion, usingRichEditor, review, roundDiff]);
 
   useEffect(() => {
     if (usingRichEditor && !richPartRef.current) startRichPart();
@@ -1008,7 +1037,7 @@ function App() {
     const move = (event) => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const over = paintedMarksRef.current.length && !window.getSelection()?.toString() ? hitTestMarks(paintedMarksRef.current, event.clientX, event.clientY) : null;
+        const over = !window.getSelection()?.toString() && ((paintedMarksRef.current.length && hitTestMarks(paintedMarksRef.current, event.clientX, event.clientY)) || (roundChangesRef.current.length && hitTestMarks(roundChangesRef.current, event.clientX, event.clientY)));
         root.classList.toggle('over-mark', Boolean(over));
       });
     };
@@ -1059,11 +1088,28 @@ function App() {
       const text = passage.textContent.trim().slice(0, 100);
       const start = Number(passage.closest('[data-edit-region]')?.dataset.editRegion) || 0;
       try { result.anchor = createTextAnchor(sourceBaseRef.current, { text, sourceOffset: start, regionStart: start, regionEnd: start + (isLargeDocument ? 80000 : sourceBaseRef.current.length) }); } catch { /* scroll offset remains usable */ }
-      result.passageOffset = passage.getBoundingClientRect().top - top;
+      result.passageOffset = passageTextTop(passage) - top;
     }
     result.heading = activeOutline;
     readingPositionCacheRef.current = { key: cacheKey, position: result };
     return result;
+  }
+
+  /**
+   * Top of a passage's first line of text. A saved position is found again by its text
+   * (findRenderedAnchor), so it is measured on the text too: a block's padding, or a note
+   * generated above it, would otherwise move the page a little on every return.
+   */
+  function passageTextTop(passage) {
+    const walker = document.createTreeWalker(passage, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.nodeValue.search(/\S/);
+      if (at < 0) continue;
+      const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + 1);
+      const box = range.getBoundingClientRect();
+      if (box.height) return box.top;
+    }
+    return passage.getBoundingClientRect().top;
   }
 
   function getReferencePosition() {
@@ -1079,7 +1125,7 @@ function App() {
       const start = Number(passage.closest('[data-edit-region]')?.dataset.editRegion) || 0;
       try { result.anchor = createTextAnchor(referenceMarkdown, { text: passage.textContent.trim().slice(0, 100), sourceOffset: start,
         regionStart: start, regionEnd: referenceAnalysis.large ? start + 80000 : referenceMarkdown.length }); } catch { /* Pixel and chunk positions remain usable. */ }
-      result.passageOffset = passage.getBoundingClientRect().top - top;
+      result.passageOffset = passageTextTop(passage) - top;
     }
     referencePositionCacheRef.current = { key, position: result };
     return result;
@@ -1491,8 +1537,10 @@ function App() {
       if (markPopover && !typing && ['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); removeAnnotation(markPopover.id); return; }
       if (!typing && (event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); openSendDialog(); return; }
       if (!typing && readingMode && selectionTools && selectedPassageRef.current && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const type = { f: 'fix', e: 'expand', d: 'delete', q: 'ask', i: 'free', h: 'highlight', u: 'underline', n: 'note' }[event.key.toLowerCase()];
-        if (type) { event.preventDefault(); startAnnotation(type); return; }
+        // Fix carries any instruction. E still works: a Fix that already says "expand".
+        const key = event.key.toLowerCase();
+        const type = { f: 'fix', e: 'fix', d: 'delete', q: 'ask', i: 'fix', h: 'highlight', u: 'underline', n: 'note' }[key];
+        if (type) { event.preventDefault(); startAnnotation(type, undefined, key === 'e' ? { note: language === 'zh' ? '展开写得更充分、更具体。' : 'Expand this: more depth and detail.' } : undefined); return; }
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
         event.preventDefault(); void closeTab(); return;
@@ -2090,6 +2138,19 @@ function App() {
   }
   function countChanges(before, after) { try { return diffBlocks(before, after).hunks.filter((hunk) => hunk.type === 'change').length; } catch { return 0; } }
   function showRound(next) { roundRef.current = next; setRound(next); }
+  /**
+   * Of the changes another program made, how many are in a paragraph the user had marked,
+   * and how many are not. Null when there is nothing to check against (no instructions, or
+   * a whole-document instruction, which covers every change).
+   */
+  function checkAgainstTasks(before, after, tasks) {
+    if (!tasks?.length || tasks.some((task) => task.scope === 'document')) return null;
+    try {
+      const diff = diffBlocks(before, after), changes = diff.hunks.filter((hunk) => hunk.type === 'change');
+      const unasked = changes.filter((hunk) => !tasksForHunk(diff, hunk, tasks).length).length;
+      return { asked: changes.length - unasked, unasked };
+    } catch { return null; }
+  }
   // Session documents (samples, imports, the web) are not written to a file by themselves.
   function savesItself() { return fileHandlesRef.current.has(activeDocumentRef.current.key) && ['MD', 'TXT'].includes(activeDocumentRef.current.kind); }
   function savedHint() { return savesItself() ? (language === 'zh' ? '，会自动保存' : '; saving') : (language === 'zh' ? '。这篇是会话文档，记得导出保存' : '. This is a session document; export it to keep it'); }
@@ -2132,18 +2193,23 @@ function App() {
     setFileMeta((meta) => ({ ...meta, size: new Blob([disk]).size, updated: 'just-now' }));
     lastEditSnapshotRef.current = captureEditSnapshot();
     const statuses = extend ? current.statuses : markSnapshot(key);
+    // The instructions open when the change arrived, located in the text as it was then.
+    let asked = []; try { asked = extend ? current.tasks || [] : buildTasks(since, markStore.get(key)); } catch { /* the change is followed without the check */ }
     // Instructions whose text is gone were acted on; Undo puts their status back.
     const gone = new Map(markStore.get(key).filter((item) => isRedline(item.type) && ['open', 'sent'].includes(item.status || 'open') && !item.anchor?.document && resolveTextAnchor(disk, item.anchor).orphaned).map((item) => [item.id, { status: 'resolved' }]));
     if (gone.size) setMarkStatuses(gone, key);
-    showRound({ kind: 'external', key, previous: since, next: disk, count: countChanges(since, disk), writes: (extend ? current.writes : 0) + 1, at: Date.now(), since: extend ? current.since : Date.now(), statuses });
+    showRound({ kind: 'external', key, previous: since, next: disk, count: countChanges(since, disk), writes: (extend ? current.writes : 0) + 1, at: Date.now(), since: extend ? current.since : Date.now(), statuses,
+      tasks: asked, check: checkAgainstTasks(since, disk, asked) });
     setCompareView((view) => view && view.key === key && view.follow ? { ...view, proposed: disk, id: Date.now() } : view);
     flashChanges(previous, disk);
   }
 
-  function openCompare({ base, proposed, label, readOnly = false, follow = false }) {
+  function openCompare({ base, proposed, label, readOnly = false, follow = false, tasks = [] }) {
     if (!readingMode) commitInlineEdit({ notify: false });
     setMarkPopover(null);
-    setCompareView({ key: activeDocumentRef.current.key, mode: 'compare', origin: 'compare', base, proposed, sourceLabel: label, readOnly, follow, tasks: [], answers: new Map(), id: Date.now() });
+    setCompareView({ key: activeDocumentRef.current.key, mode: 'compare', origin: 'compare', base, proposed, sourceLabel: label, readOnly, follow, tasks,
+      // With instructions to compare against, a change in a paragraph nobody marked is pointed out.
+      checkAsked: tasks.length > 0 && !tasks.some((task) => task.scope === 'document'), answers: new Map(), id: Date.now() });
   }
 
   function compareRound() {
@@ -2151,7 +2217,22 @@ function App() {
     if (!current || current.key !== activeDocumentRef.current.key) return;
     const since = new Date(current.kind === 'external' && current.since ? current.since : current.at).toLocaleTimeString();
     const label = current.kind === 'external' ? (language === 'zh' ? `外部程序 · ${since} 以来` : `another program · since ${since}`) : current.kind === 'review' ? current.source : roundLabel(current);
-    openCompare({ base: current.previous, proposed: getDocumentSource(), label, follow: current.kind === 'external' });
+    openCompare({ base: current.previous, proposed: getDocumentSource(), label, follow: current.kind === 'external', tasks: current.kind === 'external' ? current.tasks || [] : [] });
+  }
+
+  /** Put one change of the round on screen back, from its popover in the text. The rest stay as they are. */
+  function putBackChange(id) {
+    const current = roundRef.current, zh = language === 'zh';
+    setChangePopover(null);
+    if (!current || !roundDiff || getDocumentSource() !== current.next) return;
+    const final = composeReview(roundDiff.diff, { [id]: 'reject' });
+    applySource(final);
+    // An instruction this change had settled is open again once its text is back.
+    const was = new Map((current.statuses || []).map((item) => [item.id, item]));
+    setMarkStatuses(new Map(markStore.get(current.key).filter((item) => was.has(item.id) && item.status === 'resolved' && was.get(item.id).status !== 'resolved' && !resolveTextAnchor(final, item.anchor).orphaned)
+      .map((item) => [item.id, { status: was.get(item.id).status || 'open' }])), current.key);
+    showRound({ ...current, next: final, count: countChanges(current.previous, final), check: current.kind === 'external' ? checkAgainstTasks(current.previous, final, current.tasks) : current.check });
+    setNotice((zh ? '已改回这一处' : 'Put that change back') + savedHint());
   }
 
   function revertFromCompare(final) {
@@ -2230,6 +2311,9 @@ function App() {
       { id: 'path', group: g.file, label: zh ? '按路径打开' : 'Open by path', shortcut: `${mod} L`, run: () => setPathOpen(true) },
       { id: 'find-file', group: g.file, label: zh ? '在文件夹里找文档' : 'Find a document in the folder', shortcut: `${mod} P`, run: () => { setSidebarOpen(true); setSideMode('files'); window.requestAnimationFrame(() => quickInputRef.current?.focus()); } },
       { id: 'send', group: g.ai, label: zh ? '交给 AI 修改' : 'Send to AI', shortcut: `${mod} ↵`, disabled: !has, run: () => openSendDialog() },
+      { id: 'send-options', group: g.ai, label: zh ? '交给 AI 修改：选择 AI 和权限范围' : 'Send to AI: choose the AI and scope', disabled: !has, run: () => openSendDialog(null, { options: true }) },
+      { id: 'review-command', group: g.ai, label: zh ? '复制「请我审」的命令，给终端里的 AI' : 'Copy the review command for my terminal AI', keywords: 'cli terminal claude codex stetwise-review', run: () => void copyReviewCommand() },
+      { id: 'copy-task', group: g.ai, label: zh ? '复制成任务，贴给终端里的 AI' : 'Copy as a task for my terminal AI', disabled: !has, run: () => void copyTaskForTerminal() },
       { id: 'whole', group: g.ai, label: zh ? '全文指令' : 'Whole-document instruction', disabled: !has, keywords: 'instruction', run: () => { const created = addAnnotation('free', { anchor: { text: '', rawQuote: '', document: true, sourceOffset: 0, sourceEnd: 0 }, label: zh ? '全文' : 'Whole document' }); openMarkPopover(created.id, null, { focus: true }); } },
       { id: 'agents', group: g.ai, label: zh ? 'AI 工具设置' : 'AI tools', run: () => setAgentSettingsOpen(true) },
       { id: 'find', group: g.view, label: zh ? '在文档中查找' : 'Find in document', shortcut: `${mod} F`, disabled: !has, run: () => openSearch() },
@@ -2247,7 +2331,7 @@ function App() {
       { id: 'report', group: g.export, label: zh ? '导出修改记录' : 'Export change log', disabled: !has, run: () => void exportChangeReport() },
       { id: 'rich', group: g.export, label: zh ? '复制为富文本' : 'Copy as formatted text', keywords: 'copy clipboard 飞书 钉钉 notion', disabled: !has, run: () => void copyRichText() },
       { id: 'marks', group: g.export, label: zh ? '导出标记 JSON' : 'Export marks as JSON', disabled: !has, run: () => void exportAnnotations() },
-      { id: 'language', group: g.app, label: zh ? 'Switch to English' : '切换到中文', run: () => setLanguage(zh ? 'en' : 'zh') },
+      { id: 'language', group: g.app, label: zh ? '界面语言：切换到 English' : 'Interface language: switch to 中文 (Chinese)', keywords: 'language 语言 english chinese 中文', run: () => setLanguage(zh ? 'en' : 'zh') },
       { id: 'theme-dark', group: g.app, label: zh ? '深色模式' : 'Dark theme', keywords: 'dark theme 夜间 暗色', run: () => setTheme('dark') },
       { id: 'theme-light', group: g.app, label: zh ? '浅色模式' : 'Light theme', keywords: 'light theme 白天', run: () => setTheme('light') },
       { id: 'theme-system', group: g.app, label: zh ? '外观跟随系统' : 'Follow system appearance', keywords: 'system theme', run: () => setTheme('system') },
@@ -2658,14 +2742,17 @@ function App() {
 
   function undoEdit() {
     if (readingMode) return { ok: false, error: 'reading-locked' };
-    if (usingRichEditor && editorRef.current) { editorRef.current.undo(); return { ok: true, revision: documentRevisionRef.current }; }
+    // The editor undoes what was typed in it. A change made around it (a restored version, an
+    // inserted total row, the automation API) is in the document's own history: without this
+    // fallback, undo did nothing for those while still reporting success.
+    if (usingRichEditor && editorRef.current?.undo()) return { ok: true, revision: documentRevisionRef.current };
     const snapshot = getEditHistory().undo(captureEditSnapshot());
     return snapshot ? restoreSnapshot(snapshot) : { ok: false, error: 'nothing-to-undo' };
   }
 
   function redoEdit() {
     if (readingMode) return { ok: false, error: 'reading-locked' };
-    if (usingRichEditor && editorRef.current) { editorRef.current.redo(); return { ok: true, revision: documentRevisionRef.current }; }
+    if (usingRichEditor && editorRef.current?.redo()) return { ok: true, revision: documentRevisionRef.current };
     const snapshot = getEditHistory().redo(captureEditSnapshot());
     return snapshot ? restoreSnapshot(snapshot) : { ok: false, error: 'nothing-to-redo' };
   }
@@ -2720,6 +2807,14 @@ function App() {
       return;
     }
     if (link) { event.preventDefault(); void openDocumentLink(link.getAttribute('href')); return; }
+    if (!link && !event.target.closest('img') && !event.ctrlKey && !event.metaKey && !window.getSelection()?.toString().trim() && roundChangesRef.current.length) {
+      const changed = hitTestMarks(roundChangesRef.current, event.clientX, event.clientY);
+      if (changed) {
+        const box = changed.range.getClientRects()[0] || changed.range.getBoundingClientRect();
+        setMarkPopover(null); setChangePopover({ id: changed.item.id, rect: { left: box.left, top: box.top, bottom: Math.min(changed.range.getBoundingClientRect().bottom, window.innerHeight - 120), right: box.right } });
+        return;
+      }
+    }
     const image = event.target.closest('img');
     if (image) {
       setLightbox({ src: image.currentSrc || image.src, alt: image.alt || '', source: image.dataset.source, handle: fileHandlesRef.current.get(currentDocumentKey), key: `${currentDocumentKey}:${image.dataset.source || image.src}` });
@@ -2785,7 +2880,7 @@ function App() {
   }
 
   /** Create a mark from the current selection in one step: no naming dialog. */
-  function startAnnotation(type, anchor = selectedPassageRef.current) {
+  function startAnnotation(type, anchor = selectedPassageRef.current, { note } = {}) {
     if (!MARK_TYPES.includes(type)) throw new RangeError('Invalid annotation type');
     if (type === 'bookmark') { addAnnotation('bookmark', {}); return; }
     if (!anchor) { setNotice(language === 'zh' ? '请先选择一段正文' : 'Select a passage first'); return; }
@@ -2795,7 +2890,7 @@ function App() {
     const twin = markStore.get(activeDocumentRef.current.key).find((item) => item.type === type && item.anchor?.rawQuote === anchor.rawQuote && !item.anchor?.document
       && resolveTextAnchor(source, item.anchor).sourceOffset === anchor.sourceOffset && (!isRedline(type) || ['open', 'sent', 'unchanged', 'question'].includes(item.status || 'open')));
     if (twin) { window.getSelection()?.removeAllRanges(); openMarkPopover(twin.id, rect, { focus: true }); setNotice(language === 'zh' ? '这段文字已经有同样的标记，已为你打开' : 'This passage already has that mark; opened it'); return; }
-    const created = addAnnotation(type, { anchor, label: anchor.text });
+    const created = addAnnotation(type, { anchor, label: anchor.text, ...(note ? { note } : {}) });
     window.getSelection()?.removeAllRanges();
     if (isRedline(type) || type === 'note') openMarkPopover(created.id, rect, { focus: true });
   }
@@ -2900,20 +2995,37 @@ function App() {
     return buildTasks(source, markStore.get(activeDocumentRef.current.key), statuses ? { includeStatuses: statuses } : undefined);
   }
 
+  // The last finished AI round on each document, for the next task on it (see roundRecord).
+  const LAST_ROUNDS = 'stetwise-last-rounds-v1';
+  function lastRound(key = activeDocumentRef.current.key) {
+    try { const found = JSON.parse(localStorage.getItem(LAST_ROUNDS) || '{}')[key]; return found && Date.now() - found.at < 14 * 86400000 ? found.entries : []; } catch { return []; }
+  }
+  function rememberRound(key, entries) {
+    try {
+      const all = JSON.parse(localStorage.getItem(LAST_ROUNDS) || '{}');
+      if (entries.length) all[key] = { at: Date.now(), entries }; else delete all[key];
+      // Only the most recent documents are kept.
+      const recent = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, 40);
+      localStorage.setItem(LAST_ROUNDS, JSON.stringify(Object.fromEntries(recent)));
+    } catch { /* storage unavailable: the next task goes without it */ }
+  }
+
   function promptFor(mode, scope = 'file', onlyIds = null, note = '') {
     const source = getDocumentSource();
     let tasks = currentTasks(source, onlyIds ? REDLINE_STATUS : undefined);
     if (onlyIds) tasks = tasks.filter((task) => onlyIds.includes(task.id));
     // Anchors go into a working copy only; never into the user's own file (folder scope).
     const anchors = mode === 'agent' && scope !== 'folder' ? anchorDocument(source, tasks) : null;
-    return { source, tasks, anchors, prompt: buildPrompt({ mode, language, name: fileName, file: fileName, source, tasks, scope, note, anchors }) };
+    return { source, tasks, anchors, prompt: buildPrompt({ mode, language, name: fileName, file: fileName, source, tasks, scope, note, anchors, previous: mode === 'agent' ? lastRound() : [] }) };
   }
 
   /** Read an AI result back: drop anchors and set aside anything changed outside them. */
   function scopedReview(base, proposed, anchors) {
     if (!anchors?.enabled) return { proposed: stripAnchors(proposed) };
     const result = resolveAnchors(base, anchors, proposed);
-    return { proposed: result.scoped, unscoped: result.full !== result.scoped ? result.full : undefined, outside: result.outside, anchorMissing: result.missing };
+    // Offered only when the AI really changed text outside the selections. Spacing it tidied
+    // around a deletion is not such a change (the scoped result is tidied here as well).
+    return { proposed: result.scoped, unscoped: result.outside.length ? result.full : undefined, outside: result.outside, anchorMissing: result.missing };
   }
 
   function setMarkStatuses(updates, key = activeDocumentRef.current.key) {
@@ -2926,13 +3038,17 @@ function App() {
 
   function markSent(tasks, agent, key) { setMarkStatuses(new Map(tasks.map((task) => [task.id, { status: 'sent', sentTo: agent?.name || 'AI', sentAt: Date.now() }])), key); }
 
-  function openSendDialog(onlyIds = null) {
+  function tasksToSend(onlyIds = null) {
+    return currentTasks(undefined, onlyIds ? REDLINE_STATUS : undefined).filter((task) => !onlyIds || onlyIds.includes(task.id));
+  }
+  /** options: true opens the dialog to choose the AI and scope; otherwise the last choice is used when there is one. */
+  function openSendDialog(onlyIds = null, { options = false } = {}) {
     if (!tabsRef.current.length) return;
     if (['starting', 'running'].includes(agentRunRef.current?.status)) { setNotice(language === 'zh' ? '请先停止或完成当前 AI 任务' : 'Stop or finish the current run first'); return; }
     const tasks = currentTasks(undefined, onlyIds ? REDLINE_STATUS : undefined).filter((task) => !onlyIds || onlyIds.includes(task.id));
     if (!tasks.length) { setNotice(rt(language, 'nothingToSend')); return; }
     setMarkPopover(null);
-    setSendOpen(onlyIds ? { onlyIds } : true);
+    setSendOpen({ onlyIds, quick: !options });
   }
 
   /** Save a sample, imported or unsaved document as .md, open that file with the same marks, then send. */
@@ -2952,14 +3068,78 @@ function App() {
     } catch (error) { setNotice(error.message); }
   }
 
+  /**
+   * The open instructions as text for an AI the user already has running in a terminal. It
+   * edits the real file there, with everything it already knows from that conversation;
+   * Stetwise follows the file and checks the changes against these instructions.
+   */
+  /** The open instructions written as a task for an AI in a terminal, or null (with a notice saying why). */
+  async function terminalTask() {
+    const zh = language === 'zh';
+    const tasks = tasksToSend();
+    if (!tasks.length) { setNotice(rt(language, 'nothingToSend')); return null; }
+    const handle = fileHandlesRef.current.get(activeDocumentRef.current.key);
+    if (!handle?.desktop || !handle.path || !['MD', 'TXT'].includes(activeDocumentRef.current.kind)) {
+      setNotice(zh ? '终端里的 AI 要直接改文件，所以这篇文档得先存成本机的 .md 文件。' : 'The AI in your terminal edits the file itself, so this document has to be saved as a local .md file first.'); return null;
+    }
+    // What the AI reads from disk must be what the instructions were written against.
+    if (!readingMode) commitInlineEdit({ notify: false });
+    if (dirtyDocumentsRef.current.has(activeDocumentRef.current.key)) await window.stetwiseReader.save();
+    return { tasks, task: buildPrompt({ mode: 'terminal', language, name: fileName, file: handle.path, source: getDocumentSource(), tasks, note: '', previous: lastRound() }) };
+  }
+
+
+  const samePath = (a, b) => Boolean(a && b) && String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
+  const terminalReview = terminalReviews.find((request) => samePath(request.path, fileHandlesRef.current.get(currentDocumentKey)?.path)) || null;
+  /** Answer the terminal AI that asked for this review: with the open instructions, or with "nothing to change". */
+  async function answerTerminalReview(status) {
+    const zh = language === 'zh', request = terminalReview;
+    if (!request) return;
+    try {
+      let text = zh ? '用户在 Stetwise 里看过这篇文档，没有要改的地方。不要修改它。' : 'The user reviewed this document in Stetwise and asked for no changes. Do not modify it.';
+      let count = 0;
+      if (status === 'notes') { const built = await terminalTask(); if (!built) return; text = built.task; count = built.tasks.length; }
+      await window.mengxDesktop.reviewReply(request.folder, status, text);
+      setTerminalReviews((list) => list.filter((item) => item.folder !== request.folder));
+      setNotice(status === 'notes' ? (zh ? `已把 ${count} 条指令发回终端。它改文件时这里会显示改动，并核对有没有多改。` : `Sent ${count} instruction${count === 1 ? '' : 's'} back to the terminal. Its changes will show here, checked against what you asked for.`) : (zh ? '已告诉终端里的 AI：不用改。' : 'Told the AI in your terminal: nothing to change.'));
+    } catch (error) { setNotice(error.message); }
+  }
+
+  /** The command an AI in a terminal runs to ask for a review, with a sentence telling it when. */
+  async function copyReviewCommand() {
+    const zh = language === 'zh';
+    try {
+      const found = await window.mengxDesktop?.reviewCommand?.();
+      if (!found?.ok) { setNotice(zh ? '这个命令随安装版提供（便携版和开发模式里没有）。' : 'This command comes with the installed app (not the portable build or development mode).'); return; }
+      const line = `"${found.command}" "<path to the .md file>"`;
+      const text = zh
+        ? `需要我审一份 Markdown 文档（方案、规格、草稿）时，运行下面的命令并等它结束。它会在 Stetwise 里打开这个文件，我在里面标出要改的地方；我发回之后，命令会输出我的指令。然后请直接修改那个文件来执行这些指令，只改指令涉及的地方。\n\n${line}`
+        : `When I should review a Markdown file (a plan, a spec, a draft), run the command below and wait for it to finish. It opens the file in Stetwise, where I mark what should change; when I send them back, the command prints my instructions. Then carry them out by editing that file, changing only what they ask for.\n\n${line}`;
+      if (window.mengxDesktop?.copyText) await window.mengxDesktop.copyText(text); else await navigator.clipboard.writeText(text);
+      setNotice(zh ? '已复制。贴进你的 CLAUDE.md、AGENTS.md，或直接发给终端里的 AI。' : 'Copied. Paste it into your CLAUDE.md or AGENTS.md, or straight to the AI in your terminal.');
+    } catch (error) { setNotice(error.message); }
+  }
+
+  async function copyTaskForTerminal() {
+    const zh = language === 'zh';
+    try {
+      const built = await terminalTask();
+      if (!built) return;
+      const { tasks, task } = built;
+      if (window.mengxDesktop?.copyText) await window.mengxDesktop.copyText(task); else await navigator.clipboard.writeText(task);
+      setNotice(zh ? `已复制 ${tasks.length} 条指令。贴给终端里的 AI，它改文件时这里会显示改动，并核对有没有多改。` : `Copied ${tasks.length} instruction${tasks.length === 1 ? '' : 's'}. Paste into the AI in your terminal; its changes will show here, checked against what you asked for.`);
+    } catch (error) { setNotice(error.message); }
+  }
+
   function canRunLocalAgent() {
     const handle = fileHandlesRef.current.get(activeDocumentRef.current.key);
     return Boolean(window.mengxDesktop?.agents && handle?.desktop && ['MD', 'TXT'].includes(activeDocumentRef.current.kind));
   }
 
-  async function startAgent({ agent, scope, note = '' }) {
+  async function startAgent({ agent, scope, note = '', quick = false }) {
     const onlyIds = sendOpen?.onlyIds || null;
     setSendOpen(false);
+    if (quick) setNotice(language === 'zh' ? `已交给 ${agent.name}（${scope === 'folder' ? '文档所在文件夹' : '只改这篇文档'}）。要换 AI 或范围，点发送按钮旁边的选项。` : `Sent to ${agent.name} (${scope === 'folder' ? 'the document folder' : 'this document only'}). To change the AI or scope, use the options button next to Send.`);
     if (agent.kind === 'manual') { setManualTransfer({ onlyIds, key: activeDocumentRef.current.key }); return; }
     if (agentStartingRef.current || ['starting', 'running'].includes(agentRunRef.current?.status)) return;
     agentStartingRef.current = true;
@@ -3030,7 +3210,7 @@ function App() {
         const changed = typeof data.proposed === 'string' ? countChanges(run.base, stripAnchors(data.proposed)) : 0, asked = finished.questions?.size || 0;
         const body = finished.status === 'done'
           ? (zh ? `${run.agent.name} ${changed ? `改完了 ${changed} 处` : '没有改动文档'}${asked ? `，有 ${asked} 个疑问` : ''}。点这里回来审阅。` : `${run.agent.name} ${changed ? `changed ${changed} place${changed === 1 ? '' : 's'}` : 'made no changes'}${asked ? `, with ${asked} question${asked === 1 ? '' : 's'}` : ''}. Click to review.`)
-          : (zh ? `${run.agent.name} 没有完成：${finished.diagnostic?.message || '请查看运行日志'}` : `${run.agent.name} did not finish: ${finished.diagnostic?.message || 'see the run log'}`);
+          : (zh ? `${run.agent.name} 没有完成：${finished.diagnostic?.messages?.zh || finished.diagnostic?.message || '请查看运行日志'}` : `${run.agent.name} did not finish: ${finished.diagnostic?.messages?.en || finished.diagnostic?.message || 'see the run log'}`);
         void window.mengxDesktop?.attention?.(documentName, body)?.catch?.(() => {});
       }
       if (finished.status !== 'done') { setMarkStatuses(new Map(run.tasks.map((task) => [task.id, { status: 'open', sentTo: undefined }])), run.key); return; }
@@ -3165,6 +3345,7 @@ function App() {
     if (activeDocumentRef.current.key !== current.key) await switchTab(current.key);
     if (current.origin === 'agent' && getDocumentSource() !== current.base && getDocumentSource() !== current.diskBaseline) { setNotice(language === 'zh' ? '文档在审阅期间又变了，没有覆盖当前内容。请放弃这次审阅后重新发送。' : 'The document changed during review. Discard this review and send again.'); return; }
     const previous = getDocumentSource(), statusesBefore = markSnapshot(current.key);
+    if (current.origin === 'agent') { try { rememberRound(current.key, roundRecord(diff, decisions, current.tasks, notes)); } catch { /* the review is applied without the record */ } }
     applySource(final, { diskBaseline: current.diskBaseline });
     const touched = new Set();
     for (const hunk of diff.hunks) {
@@ -3768,14 +3949,14 @@ function App() {
             </div>}
           </div>
           <span className="topbar-divider" />
-          <div className={`language-switch ${language}`} aria-label={copy.language}>
-            <button className={language === 'zh' ? 'active' : ''} onClick={() => setLanguage('zh')} aria-pressed={language === 'zh'}>中</button>
-            <button className={language === 'en' ? 'active' : ''} onClick={() => setLanguage('en')} aria-pressed={language === 'en'}>EN</button>
-          </div>
           <div className="topbar-panel-anchor">
             <button className={`icon-button quiet ${preferencesOpen ? 'active' : ''}`} aria-label={copy.settings} title={copy.settings} onClick={() => { setPreferencesOpen((open) => !open); setHelpOpen(false); }}><Settings2 size={17} /></button>
             {preferencesOpen && <div className="topbar-popover preferences-popover" role="dialog" aria-label={copy.preferencePanel}>
               <div className="popover-heading"><strong>{copy.preferencePanel}</strong><button className="icon-button quiet" onClick={() => setPreferencesOpen(false)} aria-label={copy.closePanel} title={copy.closePanel}><X size={15} /></button></div>
+              <div className="popover-section-label">{zh ? '界面语言 / Language' : 'Language / 界面语言'}</div>
+              <div className="preference-segmented language-choice" role="group" aria-label={copy.language}>
+                {[['en', 'English'], ['zh', '中文']].map(([value, label]) => <button key={value} className={language === value ? 'selected' : ''} onClick={() => setLanguage(value)} aria-pressed={language === value}>{label}</button>)}
+              </div>
               <div className="popover-section-label">{zh ? '外观' : 'Appearance'}</div>
               <div className="preference-segmented" role="group" aria-label={zh ? '外观' : 'Appearance'}>
                 {[['light', zh ? '浅色' : 'Light'], ['dark', zh ? '深色' : 'Dark'], ['system', zh ? '跟随系统' : 'System']].map(([value, label]) => <button key={value} className={theme === value ? 'selected' : ''} onClick={() => setTheme(value)} aria-pressed={theme === value}>{label}</button>)}
@@ -3815,10 +3996,10 @@ function App() {
             <button className={`icon-button quiet ${helpOpen ? 'active' : ''}`} aria-label={copy.help} title={copy.help} onClick={() => { setHelpOpen((open) => !open); setPreferencesOpen(false); }}><CircleHelp size={17} /></button>
             {helpOpen && <div className="topbar-popover help-popover" role="dialog" aria-label={copy.helpTitle}>
               <div className="popover-heading"><strong>{copy.helpTitle}</strong><button className="icon-button quiet" onClick={() => setHelpOpen(false)} aria-label={copy.closePanel} title={copy.closePanel}><X size={15} /></button></div>
-              <p>{zh ? '选中文字后，用「修改 / 展开 / 删除 / 提问」给 AI 下指令；「高亮 / 划线 / 批注」只给自己看。点任何标记都可以修改或移除。' : 'Select text and choose Fix, Expand, Delete or Ask to instruct the AI. Highlight, Underline and Note stay private. Click any mark to change or remove it.'}</p>
+              <p>{zh ? '选中文字后，用「修改 / 删除 / 提问」给 AI 下指令，「修改」里写任何要求都行；「高亮 / 划线 / 批注」只给自己看。点任何标记都可以修改或移除。' : 'Select text and choose Fix, Delete or Ask to instruct the AI; a Fix can ask for anything. Highlight, Underline and Note stay private. Click any mark to change or remove it.'}</p>
               <div className="popover-section-label">{copy.shortcuts}</div>
               <div className="shortcut-list">
-                <span><kbd>F E D Q</kbd><span>{zh ? '选中后：修改 / 展开 / 删除 / 提问' : 'With a selection: Fix / Expand / Delete / Ask'}</span></span>
+                <span><kbd>F D Q</kbd><span>{zh ? '选中后：修改 / 删除 / 提问（E：写好「展开」的修改）' : 'With a selection: Fix / Delete / Ask (E: a Fix that says "expand")'}</span></span>
                 <span><kbd>H U N</kbd><span>{zh ? '选中后：高亮 / 划线 / 批注' : 'With a selection: Highlight / Underline / Note'}</span></span>
                 <span><kbd>{mod} ↵</kbd><span>{rt(language, 'sendToAi')}</span></span>
                 <span><kbd>{mod} P</kbd><span>{copy.findDocument}</span></span>
@@ -3920,7 +4101,7 @@ function App() {
 
         {!sidebarOpen && !review && !compareView && <button className="reopen-sidebar" onClick={() => setSidebarOpen(true)} aria-label={copy.showSidebar} title={copy.showSidebar}><LayoutPanelLeft size={17} /></button>}
 
-        <main className="main-area">
+        <main className="main-area" style={{ '--doc-align': documentAlign }}>
           {searchOpen && !review && <div className="search-strip">
             <Search size={16} />
             <input
@@ -3972,7 +4153,7 @@ function App() {
               {searchResults.length ? <VirtualList items={searchResults} className="search-results-list" rowHeight={95} renderItem={(result) => (
                   <button key={result.index} className={`search-result-item ${result.index === searchIndex ? 'active' : ''}`} onClick={() => selectSearchResult(result.index)}>
                     <span className="search-result-number">{result.index + 1}</span>
-                    <span className="search-result-copy"><small>{result.name || result.location}{result.line !== undefined ? ` · ${result.line + 1}` : ''}</small><span>{result.snippet}</span></span>
+                    <span className="search-result-copy"><small>{result.name || (zh ? result.location : { 标题: 'Heading', 表格: 'Table', 引用: 'Quote', 列表: 'List', 代码: 'Code', 正文: 'Text' }[result.location] || result.location)}{result.line !== undefined ? ` · ${result.line + 1}` : ''}</small><span>{result.snippet}</span></span>
                   </button>
                 )} /> : <div className="search-results-empty">{searchError || documentAnalysis.searchError || (workspaceSearch?.pending || documentAnalysis.searching ? copy.searchPreparing : copy.searchNoMatches)}</div>}
               {workspaceSearch?.truncated && <div className="search-results-empty">{zh ? `共 ${workspaceSearch.total} 个匹配，显示前 ${searchCount} 个；缩小范围可查看更多。` : `${workspaceSearch.total} matches; showing ${searchCount}. Narrow the scope for more.`}</div>}
@@ -3982,12 +4163,23 @@ function App() {
             <div className="reading-stage-main">
           <div className={`reading-layout width-${readingWidth} reader-font-${readingPreferences.fontFamily} reader-size-${readingPreferences.fontSize} reader-leading-${readingPreferences.lineHeight} reader-spacing-${readingPreferences.paragraphSpacing} reader-background-${readingPreferences.background} reader-code-${readingPreferences.codeSize} ${splitView ? 'split-enabled' : ''} ${usingRichEditor ? 'rich-editing' : ''}`}>
             <section className="reading-column reading-scroll-region" ref={readingScrollRef} aria-label={zh ? '正文阅读区' : 'Document reading pane'} tabIndex={0}>
+              {terminalReview && <div className="round-bar terminal-review" role="status" aria-live="polite">
+                <div className="round-text"><strong>{zh ? '终端里的 AI 在等你审这篇文档' : 'An AI in your terminal is waiting for your review'}</strong>
+                  <small>{zh ? '标出要改的地方，再把指令发回去。它会直接改这个文件，改动显示在这里。' : 'Mark what should change, then send your instructions back. It edits this file, and its changes show here.'}</small></div>
+                <div className="round-actions">
+                  <button className="primary-button" onClick={() => void answerTerminalReview('notes')}>{zh ? '把指令发回终端' : 'Send instructions back'}</button>
+                  <button onClick={() => void answerTerminalReview('none')}>{zh ? '不用改' : 'Nothing to change'}</button>
+                </div>
+              </div>}
               {saveState.status === 'conflict' && <div className="round-bar conflict" role="alert">
                 <div className="round-text"><strong>{zh ? '被外部修改了' : 'Changed outside'}</strong><small>{zh ? '你这里也有没保存的修改，所以没有自动刷新' : 'You have unsaved changes here, so it did not refresh'}</small></div>
                 <div className="round-actions"><button className="primary-button" onClick={() => void openExternalReview()}>{zh ? '对比并合并' : 'Compare and merge'}</button><button onClick={() => void resolveConflictFromUi('reload')}>{zh ? '用磁盘上的版本' : 'Use the version on disk'}</button><button onClick={() => setConflictDialog(true)}>{zh ? '更多…' : 'More…'}</button></div></div>}
               {round && round.key === currentDocumentKey && saveState.status !== 'conflict' && <div className={`round-bar ${round.undone ? 'undone' : ''}`} role="status" aria-live="polite">
                 <div className="round-text">
                   <strong>{round.undone ? (zh ? '已撤销这次修改' : 'Change undone') : round.count ? `${roundLabel(round)} · ${zh ? `${round.count} 处` : `${round.count} change${round.count === 1 ? '' : 's'}`}` : roundLabel(round)}</strong>
+                  {round.kind === 'external' && !round.undone && round.check && <span className={`round-check ${round.check.unasked ? 'warn' : ''}`}>{zh
+                    ? `${round.check.asked} 处在你标记的段落里${round.check.unasked ? `，${round.check.unasked} 处没让改` : '，没有多改'}`
+                    : `${round.check.asked} in paragraphs you marked${round.check.unasked ? `, ${round.check.unasked} not asked for` : ', nothing else changed'}`}</span>}
                   <small>{new Date(round.at).toLocaleTimeString()}{round.kind === 'external' && round.writes > 1 ? (zh ? ` · 共 ${round.writes} 次写入` : ` · ${round.writes} writes`) : ''}{round.created > 0 && !round.undone ? (zh ? ` · 已把 ${round.created} 条驳回意见变成新指令` : ` · ${round.created} rejection note${round.created === 1 ? '' : 's'} became instructions`) : ''}</small>
                 </div>
                 <div className="round-actions">
@@ -4006,7 +4198,8 @@ function App() {
               {!usingRichEditor && <header className="document-heading">
                 <div className="document-eyebrow"><span>{formatKindLabel(fileMeta.kind, copy)}</span><span>·</span><span>{documentAnalysis.wordCount.toLocaleString()} {copy.words}</span><span>·</span><span>{formatBytes(fileMeta.size || 0)}</span></div>
                 <h1>{documentTitle}</h1>
-                <button className="document-path" onClick={() => setPathOpen(true)} title={copy.addressPlaceholder}>{fileMeta.source}</button>
+                <button className="document-path" onClick={() => setPathOpen(true)} title={`${fileMeta.source}
+${copy.addressPlaceholder}`}>{shortPath(fileMeta.source)}</button>
               </header>}
               {usingRichEditor && richPart && richPart.count > 1 && <nav className="part-bar" aria-label={zh ? '分段编辑' : 'Editing part'}>
                 <button onClick={() => switchRichPart(richPart.index - 1)} disabled={richPart.index === 0}><ArrowLeft size={14} />{zh ? '上一部分' : 'Previous'}</button>
@@ -4016,7 +4209,7 @@ function App() {
                 <button onClick={() => switchRichPart(richPart.index + 1)} disabled={richPart.index >= richPart.count - 1}>{zh ? '下一部分' : 'Next'}<ArrowRight size={14} /></button>
               </nav>}
               {usingRichEditor ? (richPart ? <MarkdownEditor key={`${currentDocumentKey}:${editorKey}`} ref={editorRef} value={richPart.base.slice(richPart.start, richPart.end)} language={language} onChange={handleRichChange} resolveImage={(source) => resolveDocumentAsset(source)} onUpload={saveDocumentImage} onError={setNotice} /> : null) :
-                (isLargeDocument || sourceView) && !documentAnalysis.ready ? <div className="large-document-loading"><p>{copy.preparingDocument} {documentAnalysis.progress}%</p></div> : (isLargeDocument || sourceView) ? <LargeDocumentView sourceMode={sourceView} key={`${currentDocumentKey}:${sourceView}`} markdown={markdown} model={documentAnalysis} query={activeSearchQuery} searchOptions={searchOptions} activeIndex={searchIndex} searchNavigation={searchNavigation} results={searchResults} headingTarget={headingTarget} articleRef={articleRef} scrollContainerRef={readingScrollRef} navigationRef={readingNavigationRef} onArticleClick={handleArticleClick} renderMarkdown={renderChunk} editable={!readingMode} drafts={chunkDraftsRef} onBeforeInput={handleBeforeInput} onInput={handleChunkInput} /> : <EditableMarkdown
+                (isLargeDocument || sourceView) && !documentAnalysis.ready ? <div className="large-document-loading"><p>{copy.preparingDocument} {documentAnalysis.progress}%</p></div> : (isLargeDocument || sourceView) ? <LargeDocumentView sourceMode={sourceView} key={`${currentDocumentKey}:${sourceView}`} markdown={markdown} model={documentAnalysis} query={activeSearchQuery} searchOptions={searchOptions} activeIndex={searchIndex} searchNavigation={searchNavigation} results={searchResults} headingTarget={headingTarget} articleRef={articleRef} scrollContainerRef={readingScrollRef} navigationRef={readingNavigationRef} onArticleClick={handleArticleClick} renderMarkdown={renderChunk} editable={!readingMode} drafts={chunkDraftsRef} onBeforeInput={handleBeforeInput} onInput={handleChunkInput} plainNote={copy.plainBlockNote} chartNote={copy.chartTooLargeNote} /> : <EditableMarkdown
                   key={currentDocumentKey}
                   elementRef={articleRef}
                   className={`document-content ${readingMode ? 'reading-locked' : 'content-editable'}`}
@@ -4028,9 +4221,9 @@ function App() {
                 />}
             </section>
 
-            {splitView && <section className="reference-column" ref={referenceScrollRef} tabIndex={0} aria-label={zh ? '右侧阅读区' : 'Right reading pane'}>
+            {splitView && <section className="reference-column" style={{ '--doc-align': referenceAlign }} ref={referenceScrollRef} tabIndex={0} aria-label={zh ? '右侧阅读区' : 'Right reading pane'}>
               <div className="reference-header"><div><span className="reference-kicker">{copy.reference}</span><strong>{referenceName}</strong></div><button className={`icon-button quiet ${splitSync ? 'active' : ''}`} aria-label={zh ? '同步滚动' : 'Sync scrolling'} aria-pressed={splitSync} title={zh ? '同步滚动' : 'Sync scrolling'} onClick={() => setSplitSync((v) => !v)}><AlignLeft size={16} /></button><button className="icon-button quiet" aria-label={zh ? '交换左右文档' : 'Swap documents'} title={zh ? '交换左右文档' : 'Swap documents'} onClick={() => void swapSplit()}><Split size={16} /></button><button className="icon-button quiet" onClick={closeSplit} aria-label={copy.closeSplit} title={copy.closeSplit}><X size={16} /></button></div>
-              {referenceAnalysis.large ? referenceAnalysis.ready && <LargeDocumentView key={`${referenceName}:${referenceMeta?.path}`} markdown={referenceMarkdown} model={referenceAnalysis} query="" activeIndex={0} results={[]} reference articleRef={referenceArticleRef} scrollContainerRef={referenceScrollRef} navigationRef={referenceNavigationRef} renderMarkdown={renderReferenceChunk} onArticleClick={handleReferenceClick} /> : <article ref={referenceArticleRef} className="reference-content document-content" onClick={handleReferenceClick} dangerouslySetInnerHTML={{ __html: renderedReference }} />}
+              {referenceAnalysis.large ? referenceAnalysis.ready && <LargeDocumentView key={`${referenceName}:${referenceMeta?.path}`} markdown={referenceMarkdown} model={referenceAnalysis} query="" activeIndex={0} results={[]} reference articleRef={referenceArticleRef} scrollContainerRef={referenceScrollRef} navigationRef={referenceNavigationRef} renderMarkdown={renderReferenceChunk} onArticleClick={handleReferenceClick} plainNote={copy.plainBlockNote} chartNote={copy.chartTooLargeNote} /> : <article ref={referenceArticleRef} className="reference-content document-content" onClick={handleReferenceClick} dangerouslySetInnerHTML={{ __html: renderedReference }} />}
               <button className="reference-switcher" onClick={openReferencePicker}><ChevronDown size={14} /> {copy.openReference}</button>
             </section>}
           </div>
@@ -4051,7 +4244,7 @@ function App() {
             const range = findRenderedAnchor(articleRef.current, item.anchor, documentAnalysis.chunks);
             if (range) openMarkPopover(id, range.getBoundingClientRect());
           }).catch(() => {}); }}
-          onRemove={(id) => removeAnnotation(id)} onSend={(ids) => openSendDialog(Array.isArray(ids) ? ids : null)}
+          onRemove={(id) => removeAnnotation(id)} onSend={(ids) => openSendDialog(Array.isArray(ids) ? ids : null)} onSendOptions={() => openSendDialog(null, { options: true })} onCopyTask={window.mengxDesktop ? () => void copyTaskForTerminal() : null}
           onClearDone={(ids) => { const previous = markStore.get(activeDocumentRef.current.key); markStore.set(activeDocumentRef.current.key, previous.filter((item) => !ids.includes(item.id))); recordAnnotationChange(previous); setAnnotationVersion((value) => value + 1); setUndoToast({ message: zh ? `已清理 ${ids.length} 条已处理的指令` : `Cleared ${ids.length} finished instruction${ids.length === 1 ? '' : 's'}`, at: Date.now() }); }}
           onDocumentInstruction={(rect) => { const created = addAnnotation('free', { anchor: { text: '', rawQuote: '', document: true, sourceOffset: 0, sourceEnd: 0 }, label: language === 'zh' ? '全文' : 'Whole document' }); openMarkPopover(created.id, rect, { focus: true }); }}
           onBookmark={() => addAnnotation('bookmark', {})} onExport={() => void exportAnnotations()}
@@ -4064,14 +4257,25 @@ function App() {
       {recentMenu && <div className="recent-menu" role="menu" style={{ left: recentMenu.left, top: recentMenu.top }}><button role="menuitem" onClick={() => removeRecentRecord(recentMenu.file)}><X size={15} />{copy.removeRecent}</button><button role="menuitem" className="danger" onClick={() => void requestSourceDeletion(recentMenu.file)}><Trash2 size={15} />{copy.deleteSource}</button></div>}
       {deleteConfirmation && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteBusy) cancelSourceDeletion(); }}><div className="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-warning"><h2 id="delete-title">{copy.deleteTitle}</h2><p className="delete-filename">{deleteConfirmation.file.name}</p><p className="delete-path">{deleteConfirmation.file.path}</p><p id="delete-warning">{window.mengxDesktop ? (zh ? (platform === 'darwin' ? '将把这个源文件移到废纸篓，需要时可以从废纸篓恢复。' : '将把这个源文件移入回收站，需要时可以从回收站还原。') : (platform === 'darwin' ? 'Move this file to the Trash. You can restore it from the Trash.' : 'Move this file to the Recycle Bin. You can restore it from the Recycle Bin.')) : copy.deleteWarning}</p><div className="dialog-actions"><button autoFocus disabled={deleteBusy} onClick={cancelSourceDeletion}>{copy.cancel}</button><button className="danger-button" disabled={deleteBusy} onClick={() => void confirmSourceDeletion(deleteConfirmation.token)}><Trash2 size={15} />{deleteBusy ? copy.deleting : copy.deleteSource}</button></div></div></div>}
       {selectionTools && !noteDialog && !selectionContextMenu && !markPopover && <div className="selection-tools" style={selectionTools} onMouseDown={(event) => event.preventDefault()}>
-        {['fix', 'expand', 'delete', 'ask', 'free'].map((type) => <button key={type} className={`sel-type type-${type}`} onClick={() => startAnnotation(type)} title={rt(language, `typeHint.${type}`)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}{readingMode && <kbd>{{ fix: 'F', expand: 'E', delete: 'D', ask: 'Q', free: 'I' }[type]}</kbd>}</button>)}
+        {['fix', 'delete', 'ask'].map((type) => <button key={type} className={`sel-type type-${type}`} onClick={() => startAnnotation(type)} title={rt(language, `typeHint.${type}`)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}{readingMode && <kbd>{{ fix: 'F', delete: 'D', ask: 'Q' }[type]}</kbd>}</button>)}
         <span className="sel-divider" />
         <button className="sel-type type-highlight" onClick={() => startAnnotation('highlight')} title={rt(language, 'typeHint.highlight')}><Highlighter size={14} /></button>
         <button className="sel-type type-underline" onClick={() => startAnnotation('underline')} title={rt(language, 'typeHint.underline')}><Underline size={14} /></button>
         <button className="sel-type type-note" onClick={() => openSelectionNote(selectedPassageRef.current)} title={rt(language, 'typeHint.note')}><MessageCircle size={14} /></button>
         <button className="sel-close" aria-label={zh ? '关闭' : 'Close'} onClick={() => setSelectionTools(null)}><X size={14} /></button>
       </div>}
-      {selectionContextMenu && !noteDialog && <div className="selection-context-menu" role="menu" style={{ left: selectionContextMenu.left, top: selectionContextMenu.top }} onMouseDown={(event) => event.preventDefault()}><button role="menuitem" onClick={() => void copySelectedText(selectionContextMenu.text)}><Copy size={15} />{zh ? '复制' : 'Copy'}</button><button role="menuitem" disabled={readingMode} onClick={() => void cutSelectedText(selectionContextMenu.text)}><Scissors size={15} />{zh ? '剪切' : 'Cut'}</button><span className="selection-context-divider" />{['fix', 'expand', 'delete', 'ask', 'free'].map((type) => <button key={type} role="menuitem" className={`type-${type}`} disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation(type, selectionContextMenu.anchor)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}<span className="selection-context-divider" /><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('highlight', selectionContextMenu.anchor)}><Highlighter size={15} />{typeLabel(language, 'highlight')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('underline', selectionContextMenu.anchor)}><Underline size={15} />{typeLabel(language, 'underline')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => openSelectionNote(selectionContextMenu.anchor)}><MessageCircle size={15} />{typeLabel(language, 'note')}</button></div>}
+      {selectionContextMenu && !noteDialog && <div className="selection-context-menu" role="menu" style={{ left: selectionContextMenu.left, top: selectionContextMenu.top }} onMouseDown={(event) => event.preventDefault()}><button role="menuitem" onClick={() => void copySelectedText(selectionContextMenu.text)}><Copy size={15} />{zh ? '复制' : 'Copy'}</button><button role="menuitem" disabled={readingMode} onClick={() => void cutSelectedText(selectionContextMenu.text)}><Scissors size={15} />{zh ? '剪切' : 'Cut'}</button><span className="selection-context-divider" />{['fix', 'delete', 'ask'].map((type) => <button key={type} role="menuitem" className={`type-${type}`} disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation(type, selectionContextMenu.anchor)}><span className="mark-swatch" aria-hidden="true" />{typeLabel(language, type)}</button>)}<span className="selection-context-divider" /><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('highlight', selectionContextMenu.anchor)}><Highlighter size={15} />{typeLabel(language, 'highlight')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => startAnnotation('underline', selectionContextMenu.anchor)}><Underline size={15} />{typeLabel(language, 'underline')}</button><button role="menuitem" disabled={!selectionContextMenu.anchor} onClick={() => openSelectionNote(selectionContextMenu.anchor)}><MessageCircle size={15} />{typeLabel(language, 'note')}</button></div>}
+      {changePopover && roundDiff && (() => {
+        const hunk = roundDiff.diff.hunks.find((item) => item.id === changePopover.id);
+        if (!hunk) return null;
+        const before = hunk.base.map((index) => roundDiff.diff.baseBlocks[index].text).join(''), after = hunk.next.map((index) => roundDiff.diff.nextBlocks[index].text).join('');
+        const related = round?.tasks?.length ? tasksForHunk(roundDiff.diff, hunk, round.tasks) : [];
+        const chips = [...related.map((task) => ({ text: `#${task.n} ${typeLabel(language, task.type)}`, className: `mark-chip type-${task.type}` })),
+          ...(round?.check && !related.length ? [{ text: rt(language, 'notAsked'), className: 'review-risk risk-unasked' }] : []),
+          ...changeRisks(before, after).map((risk) => ({ text: rt(language, `risk.${risk.kind}`), className: `review-risk risk-${risk.kind}` }))];
+        return <ChangePopover key={changePopover.id} language={language} before={before} after={after} anchorRect={changePopover.rect} chips={chips}
+          onPutBack={() => putBackChange(changePopover.id)} onCompare={() => { setChangePopover(null); compareRound(); }} onClose={() => setChangePopover(null)} />;
+      })()}
       {popoverMark && <MarkPopover key={popoverMark.id} mark={popoverMark} number={redlineNumbers.get(popoverMark.id)} anchorRect={markPopover.rect} language={language} autoFocus={markPopover.focus}
         onChangeType={(type) => updateAnnotation(popoverMark.id, { type })} onChangeNote={(note) => updateAnnotation(popoverMark.id, { note })}
         onRemove={() => removeAnnotation(popoverMark.id)} onClose={() => setMarkPopover(null)} onSend={() => openSendDialog([popoverMark.id])} />}
@@ -4102,12 +4306,12 @@ function App() {
         </div>
       </div></div>}
       {paletteOpen && <CommandPalette language={language} onClose={() => setPaletteOpen(false)} commands={paletteCommands()} />}
-      {sendOpen && <SendDialog language={language} onSaveAs={window.mengxDesktop && !canRunLocalAgent() ? () => void saveAsMarkdownAndSend() : null} taskCount={currentTasks(undefined, sendOpen?.onlyIds ? REDLINE_STATUS : undefined).filter((task) => !sendOpen?.onlyIds || sendOpen.onlyIds.includes(task.id)).length} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
+      {sendOpen && <SendDialog language={language} onSaveAs={window.mengxDesktop && !canRunLocalAgent() ? () => void saveAsMarkdownAndSend() : null} taskCount={tasksToSend(sendOpen?.onlyIds).length} quick={Boolean(sendOpen?.quick)} mixedScope={((tasks) => tasks.some((task) => task.scope === 'document') && tasks.some((task) => task.scope !== 'document'))(tasksToSend(sendOpen?.onlyIds))} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
       {setupOpen && <SetupWizard language={language} platform={platform} onClose={closeSetup} />}
       {manualTransfer && <ManualTransfer language={language} onClose={() => setManualTransfer(null)} onPackage={() => transferPackage()} onImport={(text) => importTransfer(text, true)} />}
       {agentSettingsOpen && <AgentSettings language={language} onClose={() => setAgentSettingsOpen(false)} onNotice={setNotice} onRecover={recoverAgentRun} />}
       {agentRun && !review && !compareView && <RunPanel language={language} run={agentRun} onStop={stopAgent} onLogin={agentRun.agent?.kind === 'cli' ? () => void window.mengxDesktop.agents.login(agentRun.agent.id, readAgentSettings().overrides).then(() => setNotice(language === 'zh' ? '已打开登录终端。登录完成后点「重新发送」。' : 'Sign-in terminal opened. Send again when done.')).catch((error) => setNotice(error.message)) : null} onPreview={() => { const run = agentRunRef.current; if (run?.live && run.key === activeDocumentRef.current.key) openCompare({ base: run.base, proposed: stripAnchors(run.live), label: run.agent.name, readOnly: true }); }} onDismiss={() => { agentRunRef.current = null; setAgentRun(null); }} onSettings={() => setAgentSettingsOpen(true)} onDiagnose={() => void window.mengxDesktop.agents.diagnostics({ overrides: readAgentSettings().overrides, runId: agentRun.id }).then((result) => setNotice('诊断任务已保存：' + result.path)).catch((error) => setNotice(error.message))}
-        onRetry={() => void (async () => { const run = agentRunRef.current; if (!run) return; if (activeDocumentRef.current.key !== run.key) await switchTab(run.key); agentRunRef.current = null; setAgentRun(null); openSendDialog(run.tasks.map((task) => task.id)); })().catch((error) => setNotice(error.message))}
+        onRetry={() => void (async () => { const run = agentRunRef.current; if (!run) return; if (activeDocumentRef.current.key !== run.key) await switchTab(run.key); agentRunRef.current = null; setAgentRun(null); /* after a failed run the dialog opens, so another AI can be chosen */ openSendDialog(run.tasks.map((task) => task.id), { options: true }); })().catch((error) => setNotice(error.message))}
         onReview={() => { const run = agentRunRef.current; if (run && typeof run.proposed === 'string') openReview({ key: run.key, base: run.base, ...scopedReview(run.base, run.proposed, run.anchors), tasks: run.tasks, answers: run.answers || new Map(), sourceLabel: run.agent.name, diskBaseline: run.diskBaseline, origin: 'agent' }); }} />}
       {lightbox && <ImageViewer key={lightbox.key || lightbox.src} image={lightbox} language={language} onClose={() => setLightbox(null)} onNotice={setNotice} />}
     </div>

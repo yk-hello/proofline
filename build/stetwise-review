@@ -1,0 +1,5 @@
+#!/bin/sh
+# stetwise-review <file.md>: open a file in Stetwise, wait for the review, print the instructions.
+# Lives in Stetwise.app/Contents/Resources and runs the app's own executable as a script host.
+here="$(cd "$(dirname "$0")" && pwd)"
+ELECTRON_RUN_AS_NODE=1 exec "$here/../MacOS/Stetwise" "$here/app.asar.unpacked/electron/review-cli.cjs" "$@"

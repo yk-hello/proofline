@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Undo2, Redo2, Download, Bookmark, Send, PanelRight, X, MessageCircle, Highlighter, Underline, Plus } from 'lucide-react';
+import { Search, Undo2, Redo2, Download, Bookmark, Send, PanelRight, X, MessageCircle, Highlighter, Underline, Plus, SlidersHorizontal, ClipboardCopy } from 'lucide-react';
 import { isRedline, sortByPosition } from './marks';
 import { t, typeLabel, modifierKey } from './copy';
 
@@ -7,7 +7,7 @@ const PERSONAL_FILTERS = ['all', 'highlight', 'underline', 'note', 'bookmark'];
 const FILTER_KEYS = { highlight: 'filterHighlight', underline: 'filterUnderline', note: 'filterNote', bookmark: 'filterBookmark' };
 const PERSONAL_ICONS = { highlight: Highlighter, underline: Underline, note: MessageCircle, bookmark: Bookmark };
 
-export default function InstructionRail({ language, mode, onMode, marks, numbers, occurrences = new Map(), activeId, onSelect, onRemove, onSend,
+export default function InstructionRail({ language, mode, onMode, marks, numbers, occurrences = new Map(), activeId, onSelect, onRemove, onSend, onSendOptions, onCopyTask,
   onBookmark, onExport, onUndo, onRedo, canUndo, canRedo, onHide, busy, storage, onStorage, onDocumentInstruction, onClearDone }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -77,7 +77,11 @@ export default function InstructionRail({ language, mode, onMode, marks, numbers
       {!list.length && <p className="rail-empty">{t(language, mode === 'redlines' ? 'redlineEmpty' : 'marksEmpty')}</p>}
     </div>
     {mode === 'redlines' && <footer className="rail-actions">
-      <button className="send-button" onClick={onSend} disabled={!open.length || busy}><Send size={16} /><span>{t(language, 'sendToAi')}</span><kbd>{modifierKey()} ↵</kbd></button>
+      <div className="send-row">
+        <button className="send-button" onClick={() => onSend()} disabled={!open.length || busy}><Send size={16} /><span>{t(language, 'sendToAi')}</span><kbd>{modifierKey()} ↵</kbd></button>
+        {onSendOptions && <button className="send-options" onClick={onSendOptions} disabled={!open.length || busy} aria-label={t(language, 'sendOptions')} title={t(language, 'sendOptions')}><SlidersHorizontal size={16} /></button>}
+      </div>
+      {onCopyTask && <button className="copy-task-button" onClick={onCopyTask} disabled={!open.length} title={t(language, 'copyTaskHint')}><ClipboardCopy size={14} /><span>{t(language, 'copyTask')}</span></button>}
     </footer>}
   </aside>;
 }

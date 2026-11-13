@@ -112,6 +112,15 @@ export function createTextAnchor(source, { text, sourceOffset = 0, regionStart =
 export function resolveTextAnchor(source, anchor) {
   if (anchor?.document) return { ...anchor, orphaned: false };
   if (!anchor?.rawQuote) return { ...anchor, orphaned: true };
+  // Nearly always the passage is still where it was saved, with the same text around it. Check
+  // that first: marks are resolved on every repaint, and searching a long document for each
+  // one (every occurrence of its text, when the text repeats) made scrolling stall.
+  const saved = anchor.sourceOffset, quote = anchor.rawQuote;
+  if (Number.isInteger(saved) && saved >= 0 && source.startsWith(quote, saved)
+    && (!anchor.prefix || source.slice(Math.max(0, saved - anchor.prefix.length), saved) === anchor.prefix)
+    && (!anchor.suffix || source.startsWith(anchor.suffix, saved + quote.length))) {
+    return { ...anchor, sourceOffset: saved, sourceEnd: saved + quote.length, orphaned: false };
+  }
   const at = closestMatch(source, anchor.rawQuote, anchor.sourceOffset, anchor.prefix, anchor.suffix);
   return at < 0 ? { ...anchor, orphaned: true } : { ...anchor, sourceOffset: at, sourceEnd: at + anchor.rawQuote.length, orphaned: false };
 }
@@ -255,6 +264,71 @@ export function findRenderedAnchor(root, anchor, chunks = []) {
     return range;
   }
   return null;
+}
+
+const wordSegmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+const wordsOf = (text) => (wordSegmenter ? [...wordSegmenter.segment(text)].map((item) => item.segment) : text.split(/(\s+)/));
+function rangeAt(nodes, start, end) {
+  const begin = [...nodes].reverse().find((item) => item.start <= start), finish = [...nodes].reverse().find((item) => item.start < end);
+  if (!begin || !finish) return null;
+  const range = document.createRange();
+  range.setStart(begin.node, Math.min(begin.node.textContent.length, start - begin.start)); range.setEnd(finish.node, Math.min(finish.node.textContent.length, end - finish.start));
+  return range;
+}
+
+export function clearRoundChanges() {
+  if (!globalThis.CSS?.highlights) return;
+  CSS.highlights.delete('rl-changed'); CSS.highlights.delete('rl-changed-words');
+}
+
+/**
+ * Show a round of changes in the text itself. Every changed passage that is on the page is
+ * tinted, and where one passage became one passage the words that are new in it are marked.
+ * Returns the passages with their text before and after, so a click on one can show what it
+ * replaced and offer to put it back. plain(markdown) gives the text a reader sees.
+ */
+export function paintRoundChanges(root, diff, chunks, plain, diffArrays) {
+  const passages = [], inserted = [], painted = [];
+  const cache = diff.plainCache || (diff.plainCache = new Map());
+  const seen = (key, text) => { if (!cache.has(key)) cache.set(key, plain(text)); return cache.get(key); };
+  let shown = 0;
+  for (const hunk of diff.hunks) {
+    if (hunk.type !== 'change' || !hunk.next.length) continue;
+    if (++shown > 80) break;
+    const before = hunk.base.map((index) => diff.baseBlocks[index].text).join(''), after = hunk.next.map((index) => diff.nextBlocks[index].text).join('');
+    for (const index of hunk.next) {
+      const block = diff.nextBlocks[index];
+      const firstLine = seen('n' + index, block.text).trim().split('\n')[0].trim();
+      if (!firstLine) continue;
+      const found = findRenderedAnchor(root, { text: firstLine.slice(0, 120), sourceOffset: block.start, displayPrefix: '', displaySuffix: '' }, chunks);
+      if (!found) continue;
+      const start = found.startContainer.nodeType === 1 ? found.startContainer : found.startContainer.parentElement;
+      let element = start?.closest('p, li, h1, h2, h3, h4, h5, h6, td, th, dd, dt, pre');
+      // A table is one passage: its first cell alone would say too little.
+      element = element?.closest('table') || element;
+      const range = document.createRange();
+      if (element && root.contains(element)) range.selectNodeContents(element);
+      else { range.setStart(found.startContainer, found.startOffset); range.setEnd(found.endContainer, found.endOffset); }
+      passages.push(range); painted.push({ item: { id: hunk.id, before, after }, range });
+      if (!element || !root.contains(element) || hunk.base.length !== 1 || hunk.next.length !== 1) continue;
+      const { text, nodes } = textNodes(element);
+      let at = 0;
+      for (const part of diffArrays(wordsOf(seen('b' + hunk.base[0], before).trim()), wordsOf(text))) {
+        if (part.removed) continue;
+        const value = part.value.join('');
+        if (part.added && value.trim()) {
+          const lead = value.length - value.trimStart().length, trail = value.length - value.trimEnd().length;
+          const words = rangeAt(nodes, at + lead, at + value.length - trail);
+          if (words) inserted.push(words);
+        }
+        at += value.length;
+      }
+    }
+  }
+  if (globalThis.CSS?.highlights && globalThis.Highlight) {
+    CSS.highlights.set('rl-changed', new Highlight(...passages)); CSS.highlights.set('rl-changed-words', new Highlight(...inserted));
+  }
+  return painted;
 }
 
 export const MARK_HIGHLIGHTS = ['fix', 'expand', 'delete', 'ask', 'free', 'highlight', 'underline', 'note'];

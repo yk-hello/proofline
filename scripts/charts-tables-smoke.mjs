@@ -18,7 +18,7 @@ const doc = ['# 季度报告', '', '<!-- stetwise:chart type=bar title="季度�
 try {
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 1000 } })).newPage();
   page.on('pageerror', (error) => errors.push(error.message));
-  for (let attempt = 0; ; attempt++) { try { await page.goto(`http://127.0.0.1:${port}/`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); } }
+  for (let attempt = 0; ; attempt++) { try { await page.goto(`http://127.0.0.1:${port}/?lang=zh`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); } }
   await page.waitForFunction(() => window.stetwiseReader?.getState().document.ready);
   await page.evaluate(async (text) => { await window.stetwiseReader.openFile({ file: new File([text], 'report.md', { type: 'text/markdown' }) }); }, doc);
   await page.waitForFunction(() => window.stetwiseReader.getState().document.name === 'report.md');
@@ -65,7 +65,7 @@ try {
   await page.keyboard.press('Escape');
   checks.push('document-statistics');
 
-  // 5. Free instruction on a selection (shortcut I) and for the whole document.
+  // 5. An instruction on a selection (shortcut I) and one for the whole document.
   await page.evaluate(() => {
     const walker = document.createTreeWalker(document.querySelector('.document-content'), NodeFilter.SHOW_TEXT); let node;
     while ((node = walker.nextNode())) { const at = node.nodeValue.indexOf('收入总结'); if (at >= 0) { const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + 4); getSelection().removeAllRanges(); getSelection().addRange(range); document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); return; } }
@@ -77,7 +77,9 @@ try {
   await page.locator('.mark-popover textarea').fill('全文改成正式语气');
   await page.keyboard.press('Escape');
   const marks = await page.evaluate(() => window.stetwiseReader.getAnnotations());
-  assert.deepEqual(marks.filter((mark) => mark.type === 'free').map((mark) => [Boolean(mark.anchor.document), mark.note]), [[false, '改成一张表'], [true, '全文改成正式语气']]);
+  // Fix carries any instruction on a selection (I and E are shortcuts to it); only the whole-document one is free-form.
+  assert.deepEqual(marks.filter((mark) => mark.note === '改成一张表').map((mark) => mark.type), ['fix']);
+  assert.deepEqual(marks.filter((mark) => mark.type === 'free').map((mark) => [Boolean(mark.anchor.document), mark.note]), [[true, '全文改成正式语气']]);
   assert.match(await page.locator('.rail-item.type-free').first().innerText(), /全文/);
   checks.push('free-instructions');
 

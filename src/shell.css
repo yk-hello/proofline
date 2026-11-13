@@ -503,7 +503,8 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 /* ---------- Review ---------- */
 .review-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .review-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 2px solid var(--ink); background: var(--paper); }
-.review-title { min-width: 0; flex: 1; display: grid; gap: 2px; }
+/* Wide enough to stay readable: when the buttons do not fit beside it they wrap to the next line. */
+.review-title { min-width: min(100%, 300px); flex: 1 1 300px; display: grid; gap: 2px; }
 .review-title strong { font: 900 22px/1.1 var(--ui-font); letter-spacing: -.02em; }
 .review-title span { color: var(--faint); font: 12px var(--mono); }
 .review-bar > button { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 1.5px solid var(--ink); background: var(--paper); font-weight: 700; }
@@ -843,3 +844,54 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 :root[data-theme="dark"] .document-content .pl-chart-block svg, :root[data-theme="dark"] .document-content .pl-diagram-host svg { padding: 8px; }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #3a3a3a; }
 .send-dialog:focus { outline: none; }
+
+/* ---------- Send: options, copy for a terminal AI, quick send ---------- */
+.send-row { display: flex; gap: 6px; }
+.send-row .send-button { flex: 1; width: auto; min-width: 0; }
+.send-options { flex: 0 0 54px; display: grid; place-items: center; min-height: 54px; border: 1.5px solid var(--ink); color: var(--ink); background: var(--paper); }
+.send-options:hover:not(:disabled) { background: var(--hover); }
+.send-options:disabled { border-color: var(--line-mid); color: var(--faint); cursor: default; }
+.copy-task-button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 0 12px; border: 1.5px solid var(--ink); color: var(--ink); background: var(--paper); font: 600 13px var(--ui-font); text-align: left; }
+.copy-task-button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy-task-button:hover:not(:disabled) { background: var(--hover); }
+.copy-task-button:disabled { border-color: var(--line-mid); color: var(--faint); cursor: default; }
+.send-quick { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 44px)); padding: 9px 10px 9px 16px; color: var(--on-ink); background: var(--ink); box-shadow: 5px 5px 0 var(--red); font-size: 13px; font-weight: 600; }
+.send-quick button { min-height: 28px; padding: 0 10px; border: 1.5px solid var(--on-ink); color: var(--on-ink); background: transparent; font-weight: 700; font-size: 12px; }
+.send-quick button:hover { color: var(--ink); background: var(--on-ink); }
+/* An outside change checked against the instructions. */
+.round-check { color: var(--secondary); font-size: 13px; font-weight: 600; }
+.round-check.warn { color: var(--red-text); }
+.review-risk.risk-unasked { border-color: var(--red-text); color: var(--red-text); background: var(--tint-red); }
+/* An AI in a terminal is waiting for a review of this document. */
+.round-bar.terminal-review { border-color: var(--ink); border-left: 6px solid var(--red); background: var(--paper); }
+
+/* ---------- Quieter chrome: weight where a decision is made, not on everything ---------- */
+/* Reading progress was the largest text on screen; it is a small fact about the document. */
+.reading-stats { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 8px; padding: 10px 14px 12px; }
+.reading-percent { font: 800 20px/1 var(--ui-font); letter-spacing: -.02em; }
+.reading-percent span { font-size: 13px; }
+.reading-stats-label { margin-top: 0; }
+.outline-reading-actions { grid-column: 1 / -1; margin-top: 8px; }
+.rail-tabs button { font: 800 16px var(--ui-font); letter-spacing: -.01em; }
+.rail-tabs button.active { box-shadow: inset 0 -3px 0 var(--shadow); }
+/* Secondary controls get a hairline. The heavy rule stays on dialogs and the one primary action. */
+.round-bar, .round-bar button, .review-bar > button, .segmented, .copy-task-button, .send-options { border-width: 1px; }
+/* The language choice in Settings. */
+.preference-segmented.language-choice button { min-width: 88px; }
+
+/* ---------- A round of changes, shown in the text ---------- */
+::highlight(rl-changed) { background-color: color-mix(in srgb, var(--ins-bg) 45%, transparent); }
+::highlight(rl-changed-words) { background-color: var(--ins-bg); color: var(--ins-text); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.change-popover { width: min(560px, calc(100vw - 16px)); max-height: min(70vh, 520px); display: flex; flex-direction: column; }
+.change-popover .word-diff { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px; font-size: 14px; line-height: 1.7; }
+.change-popover-title { font: 800 13px var(--ui-font); }
+.change-popover .mark-popover-head { gap: 6px; flex-wrap: wrap; }
+.change-popover .mark-popover-head .spacer { flex: 1; }
+.change-popover .text-like { display: inline-flex; align-items: center; gap: 6px; border: 0; color: var(--secondary); background: transparent; font-weight: 600; font-size: 13px; }
+.change-popover .text-like:hover { color: var(--ink); text-decoration: underline; }
+
+/* Buttons on the dark run panel: they had the browser's light grey under white text. */
+.run-actions button { border: 1px solid color-mix(in srgb, var(--on-ink) 55%, transparent); color: var(--on-ink); background: transparent; }
+.run-actions button:hover:not(:disabled) { background: color-mix(in srgb, var(--on-ink) 14%, transparent); }
+.run-actions button.primary-button { color: var(--ink) !important; background: var(--on-ink) !important; border-color: var(--on-ink) !important; }
+.run-actions button:disabled { opacity: .5; }

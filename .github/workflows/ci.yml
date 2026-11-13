@@ -42,6 +42,8 @@ jobs:
       - run: npm run test:core
       - run: npm run test:integration
       - run: npm run desktop:pack
+      - run: npm run test:review-cli
+      - run: node scripts/reader-continuity-smoke.mjs
       - uses: actions/upload-artifact@v4.6.2
         with:
           name: stetwise-windows-test-build

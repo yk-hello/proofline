@@ -7,7 +7,8 @@ async function readClipboardHtml() {
   return '';
 }
 const fs = require('node:fs/promises');
-const { statSync } = require('node:fs');
+const { statSync, existsSync, writeFileSync, realpathSync } = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { NativeFiles, inside } = require('./native-files.cjs');
@@ -45,7 +46,7 @@ function requestedPaths(argv) {
   const paths = [];
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
-    if (['--user-data', '--export-directory'].includes(arg)) { index++; continue; }
+    if (['--user-data', '--export-directory', '--review-request', '--language'].includes(arg)) { index++; continue; }
     if (arg.startsWith('-') || arg === '.') continue;
     if (/\.(md|markdown|mdown|mkd|txt|html?|docx)$/i.test(arg)) paths.push(path.resolve(arg));
     else { try { if (statSync(arg).isDirectory()) paths.push(path.resolve(arg)); } catch { /* not a document argument */ } }
@@ -54,6 +55,38 @@ function requestedPaths(argv) {
 }
 let pendingOpen = requestedPaths(args), openingFile = false;
 let rendererReady = false;
+// An AI in a terminal asking for a review: stetwise-review <file> (electron/review-cli.cjs)
+// starts or reaches the app with --review-request <folder>. The page shows a bar on that
+// document; the user's instructions are written into the folder, where the command waits.
+const reviewRequests = new Map();   // folder -> file
+let reviewQueue = [];                // requests the page has not been told about yet
+function takeReviewRequest(argv) {
+  const at = argv.indexOf('--review-request');
+  if (at < 0 || !argv[at + 1]) return;
+  const folder = path.resolve(String(argv[at + 1])), file = requestedPaths(argv)[0];
+  // Only a folder the command just made in the system temp folder, holding its request file.
+  try {
+    // Compared as real paths: the same temp folder can be named in its short 8.3 form (RUNNER~1) by one process and in full by another.
+    const real = (value) => realpathSync.native(value);
+    if (!file || !inside(real(os.tmpdir()), real(folder)) || !/^stetwise-review-/.test(path.basename(folder)) || !statSync(path.join(folder, 'request.json')).isFile()) return;
+  } catch { return; }
+  // The page finds the document by the path it was opened with, which is its real path.
+  let opened = file; try { opened = realpathSync.native(file); } catch { /* the open fails later and says why */ }
+  reviewRequests.set(folder, opened); reviewQueue.push({ folder, path: opened });
+}
+function finishReview(folder, status, text = '') {
+  if (!reviewRequests.delete(folder)) return false;
+  reviewQueue = reviewQueue.filter((request) => request.folder !== folder);
+  // done.json is written last: the command reads reply.md once it sees it.
+  try { writeFileSync(path.join(folder, 'reply.md'), text, 'utf8'); writeFileSync(path.join(folder, 'done.json'), JSON.stringify({ status }), 'utf8'); }
+  catch { /* the command stopped waiting and removed its folder */ }
+  return true;
+}
+function deliverReviews() {
+  if (!rendererReady || openingFile || pendingOpen.length) return;
+  for (const request of reviewQueue.splice(0)) window.webContents.send('mengx:review-request', request);
+}
+takeReviewRequest(args);
 // Finder delivers open-file both during launch and to an already running app.
 app.on('open-file', (event, filename) => {
   event.preventDefault();
@@ -70,6 +103,7 @@ const trusted = (event) => {
 };
 
 async function deliverOpen() {
+  if (!pendingOpen.length) deliverReviews();
   if (!rendererReady || openingFile || !pendingOpen.length) return;
   openingFile = true;
   const filename = pendingOpen.shift();
@@ -84,6 +118,7 @@ if (!automation && !app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', (_event, argv) => {
     pendingOpen.push(...requestedPaths(argv.slice(app.isPackaged ? 1 : 2)));
+    takeReviewRequest(argv.slice(app.isPackaged ? 1 : 2));
     if (window?.isMinimized()) window.restore();
     window?.focus();
     void deliverOpen();
@@ -223,15 +258,18 @@ else {
       if (operation === 'probe') {
         const options = parameters[0] || {};
         const item = (await detectAgents(options.overrides || {}, { refresh: true })).find((item) => item.id === options.id);
-        if (!item?.available) return { ok: false, code: 'not-found', message: '未找到可运行的程序，请先安装或检查路径' };
-        if (item.auth === 'required') return { ok: false, code: 'login-required', message: '需要先登录或配置 CLI 的身份认证' };
-        if (item.probeCompatibility?.ok === false) return { ok: false, code: 'arguments', message: item.probeCompatibility.message };
+        if (!item?.available) return { ok: false, code: 'not-found', message: '未找到可运行的程序，请先安装或检查路径', messages: { zh: '未找到可运行的程序，请先安装或检查路径', en: 'No runnable program was found. Install it or check its path.' } };
+        if (item.auth === 'required') return { ok: false, code: 'login-required', message: '需要先登录或配置 CLI 的身份认证', messages: { zh: '需要先登录或配置 CLI 的身份认证。点「打开终端登录」，完成后重新检测。', en: 'Sign in to this CLI first (or set up its credentials): use "Open sign-in terminal", then detect again.' } };
+        if (item.probeCompatibility?.ok === false) return { ok: false, code: 'arguments', message: item.probeCompatibility.message, messages: item.probeCompatibility.messages };
         const { runCommand, connectionArgs, connectionResult } = require('./agents.cjs');
         const probeArgs = connectionArgs(item);
-        if (!probeArgs) return { ok: false, code: 'manual-test', message: '此工具请在终端完成登录与连接检查，或直接发送文档副本测试' };
+        if (!probeArgs) return { ok: false, code: 'manual-test', message: '此工具请在终端完成登录与连接检查，或直接发送文档副本测试', messages: { zh: '此工具请在终端完成登录与连接检查，或直接发送文档副本测试', en: 'Check sign-in and the connection for this tool in a terminal, or send a copy of a document to test it.' } };
         const probeDir = path.join(dataStore.root, 'connection-check'); await fs.mkdir(probeDir, { recursive: true });
-        const result = await runCommand(item.path, probeArgs, { timeout: 45000, cwd: probeDir });
-        return connectionResult(result);
+        // Some providers take a while to answer the first request; a real task waits much longer.
+        const result = await runCommand(item.path, probeArgs, { timeout: 90000, cwd: probeDir });
+        const verdict = connectionResult(result);
+        if (result.timedOut && verdict.code === 'timeout') return { ...verdict, code: 'probe-timeout', message: '90 秒内没有收到测试回复。服务可能很慢或没有响应；可以直接发送一篇短文档试试，正式任务会等更久。', messages: { zh: '90 秒内没有收到测试回复。服务可能很慢或没有响应；可以直接发送一篇短文档试试，正式任务会等更久。', en: 'No answer to the test within 90 seconds. The service may be slow or not responding; try sending a short document, as a real task waits much longer.' } };
+        return verdict;
       }
       if (operation === 'run') {
         const options = parameters[0] || {};
@@ -436,6 +474,21 @@ else {
           if (!exportedFiles.has(target) || !/\.(md|txt)$/i.test(target)) throw new Error('Only a document exported in this session can be opened this way');
           return files.grant(target);
         }
+        case 'reviewReply': {
+          const status = parameters[1] === 'notes' ? 'notes' : 'none';
+          if (!finishReview(path.resolve(String(parameters[0] || '')), status, String(parameters[2] || '').slice(0, 2_000_000))) throw new Error('No review is waiting for this document');
+          return { ok: true };
+        }
+        // Where the stetwise-review launcher is, for the user to hand to their terminal AI.
+        case 'reviewCommand': {
+          const launcher = process.platform === 'win32' ? path.join(path.dirname(app.getPath('exe')), 'stetwise-review.cmd') : path.join(process.resourcesPath || '', 'stetwise-review');
+          return app.isPackaged && existsSync(launcher) ? { ok: true, command: launcher } : { ok: false };
+        }
+        // Plain text, written here because the page may not hold the focus the web clipboard asks for.
+        case 'copyText': {
+          await clipboard.write([new ClipboardItem({ 'text/plain': String(parameters[0] || '').slice(0, 2_000_000) })]);
+          return { ok: true };
+        }
                 case 'copyRich': {
           await clipboard.write([new ClipboardItem({ 'text/html': String(parameters[0] || ''), 'text/plain': String(parameters[1] || '') })]);
           return { ok: true };
@@ -443,7 +496,14 @@ else {
         default: throw new Error('Unknown desktop operation');
       }
     });
-    await (devUrl ? window.loadURL(devUrl) : window.loadURL('mengx://app/index.html'));
+    // --language zh|en sets the interface language for a profile that has not chosen one (tests use it).
+    const asked = args[args.indexOf('--language') + 1], startQuery = args.includes('--language') && ['zh', 'en'].includes(asked) ? `?lang=${asked}` : '';
+    await (devUrl ? window.loadURL(devUrl + startQuery) : window.loadURL('mengx://app/index.html' + startQuery));
   }).catch((error) => { console.error(error); app.exit(1); });
 }
-app.on('window-all-closed', () => { agents?.cancelAll(); app.quit(); });
+app.on('window-all-closed', () => {
+  agents?.cancelAll();
+  // A command still waiting for a review is told the app has gone, so it does not wait for ever.
+  for (const folder of [...reviewRequests.keys()]) finishReview(folder, 'closed');
+  app.quit();
+});

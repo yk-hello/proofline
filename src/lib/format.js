@@ -1,3 +1,15 @@
+/**
+ * How body text should be aligned. Justified lines suit Chinese, Japanese and Korean, where
+ * every character is the same width; in English and other spaced scripts they open wide gaps
+ * between words, so that text is set ragged-right.
+ */
+export function textAlignFor(text) {
+  const sample = String(text || '').slice(0, 20000);
+  const cjk = sample.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g)?.length || 0;
+  const words = sample.match(/[A-Za-z\u00c0-\u024f\u0400-\u04ff]{2,}/g)?.length || 0;
+  return cjk >= words ? 'justify' : 'start';
+}
+
 export function formatBytes(size) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
@@ -17,6 +29,19 @@ export function formatRecentTime(value, language) {
     en: { 'just-now': 'Just now', yesterday: 'Yesterday', 'oct-01': 'Oct 01', 'sep-29': 'Sep 29', '刚刚': 'Just now', '昨天': 'Yesterday' },
   };
   return labels[language][value] || value;
+}
+
+/**
+ * A path as shown under the document title: the file and the folder it is in. The full path
+ * (which names the user's account and folders) stays in the tooltip, out of screenshots.
+ */
+export function shortPath(value) {
+  const text = String(value || '');
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return text;
+  const separator = text.includes('\\') ? '\\' : '/';
+  const parts = text.split(/[\\/]+/).filter(Boolean);
+  if (parts.length <= 2 || !/[\\/]/.test(text)) return text;
+  return '\u2026' + separator + parts.slice(-2).join(separator);
 }
 
 export function formatRecentPath(value, language) {

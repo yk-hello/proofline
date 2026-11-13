@@ -51,10 +51,10 @@ export default function AgentSettings({ language, onClose, onRecover }) {
             <summary><strong>{item.name}</strong> · {item.version || t(language, 'notInstalled')} · {item.auth === 'required' ? (zh ? '需要登录' : 'Sign in required') : item.auth === 'ready' ? (zh ? '已登录' : 'Signed in') : (zh ? '登录待确认' : 'Check sign-in')}</summary>
             <label>{t(language, 'path')}<input spellCheck={false} placeholder={item.path || (zh ? '自动查找或填写完整路径' : 'Auto-detect or full path')} value={settings.overrides[item.id]?.path || ''} onChange={(event) => update({ overrides: { ...settings.overrides, [item.id]: { ...settings.overrides[item.id], path: event.target.value } } })} /></label>
             <label>{t(language, 'override')}<input spellCheck={false} placeholder={item.defaultArgs.join(' ')} value={settings.overrides[item.id]?.args || ''} onChange={(event) => setOverride(item.id, event.target.value)} /></label>
-            {item.compatibility?.ok === false && item.available && <p role="alert" className="settings-error">{item.compatibility.message}</p>}
+            {item.compatibility?.ok === false && item.available && <p role="alert" className="settings-error">{item.compatibility.messages?.[zh ? 'zh' : 'en'] || item.compatibility.message}</p>}
             {item.available && <button onClick={() => void bridge.login(item.id, settings.overrides).catch((error) => setError(error.message))}>{zh ? '打开终端登录 / 初始化' : 'Open terminal: sign in / initialize'}</button>}
             {item.available && <button disabled={probes[item.id]?.pending} onClick={() => void probe(item)}>{probes[item.id]?.pending ? (zh ? '等待服务响应…' : 'Waiting for service…') : (zh ? '测试连接（会调用模型）' : 'Test connection (uses model)')}</button>}
-            {probes[item.id] && <p role="status">{probes[item.id].pending ? '' : probes[item.id].message}</p>}
+            {probes[item.id] && <p role="status">{probes[item.id].pending ? '' : probes[item.id].messages?.[zh ? 'zh' : 'en'] || probes[item.id].message}</p>}
           </details>)}
           <label>{zh ? '任务最长运行时间（分钟，1–240）' : 'Task timeout (minutes, 1–240)'}<input type="number" min="1" max="240" value={settings.timeoutMinutes} onChange={(event) => update({ timeoutMinutes: Math.min(240, Math.max(1, Number(event.target.value) || 30)) })} /></label>
           <p className="settings-hint">{zh ? '每 3 秒检查进程。无输出显示等待，不代表服务端握手成功。到达时限才停止，失败与中断任务保留日志。' : 'Check the process every 3 seconds. Silence means waiting, not a server heartbeat. Interrupted runs keep their logs.'}</p>

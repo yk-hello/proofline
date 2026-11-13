@@ -15,9 +15,11 @@ const { NativeFiles, inside } = require('./native-files.cjs');
 const { AgentRunner, detect: detectAgents } = require('./agents.cjs');
 const connect = require('./connect.cjs');
 const { DataStore, installationDirectory } = require('./data-store.cjs');
+const { adoptUserData, adoptDataFolder } = require('./migrate.cjs');
 const { openMacTerminal } = require('./platform.cjs');
 
-app.setName('Stetwise');
+const APP_NAME = 'Stetwise';
+app.setName(APP_NAME);
 app.setAppUserModelId('app.stetwise.desktop');
 protocol.registerSchemesAsPrivileged([
   { scheme: 'mengx', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
@@ -28,15 +30,10 @@ const automation = args.includes('--automation');
 const userDataIndex = args.indexOf('--user-data');
 if (userDataIndex >= 0) app.setPath('userData', path.resolve(args[userDataIndex + 1]));
 else {
-  // Renaming the product must preserve existing documents, grants and reading state.
-  const current = app.getPath('userData');
-  if (!existsSync(current)) {
-    const previous = ['Proofline', 'Redline', 'MENG X'].map((name) => path.join(app.getPath('appData'), name)).find((folder) => existsSync(folder));
-    if (previous) {
-      // If an older copy is still running and holds the folder, keep using it where it is.
-      try { require('node:fs').renameSync(previous, current); } catch { app.setPath('userData', previous); }
-    }
-  }
+  // Renaming the product must preserve existing documents, grants and reading state (see migrate.cjs).
+  // Electron's default is appData/<name>; only point elsewhere when an old profile is still in use.
+  const locked = adoptUserData(app.getPath('appData'), APP_NAME);
+  if (locked) app.setPath('userData', locked);
 }
 const devUrl = !app.isPackaged && (process.env.STETWISE_DEV_URL || process.env.MENGX_DEV_URL);
 const exportIndex = args.indexOf('--export-directory');
@@ -131,15 +128,7 @@ else {
     try { savedStorage = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'storage-location.json'), 'utf8')).path; } catch { /* installation default */ }
     const defaultStorage = installationDirectory({ packaged: app.isPackaged, executable: app.getPath('exe'), appPath: app.getAppPath() });
     // The data folder was ProoflineData (and RedlineData before that); in development .redline-data.
-    // Carry the newest one over once: rename when possible, otherwise copy and leave the original.
-    for (const root of [defaultStorage, path.join(app.getPath('userData'), 'StetwiseData')]) {
-      const names = path.basename(root).startsWith('.') ? ['.redline-data'] : ['ProoflineData', 'RedlineData'];
-      const legacy = names.map((name) => path.join(path.dirname(root), name)).find((folder) => existsSync(folder));
-      if (!savedStorage && !existsSync(root) && legacy) {
-        try { await fs.rename(legacy, root); }
-        catch { try { await fs.cp(legacy, root, { recursive: true, errorOnExist: true, force: false }); } catch { /* the store reports it */ } }
-      }
-    }
+    if (!savedStorage) for (const root of [defaultStorage, path.join(app.getPath('userData'), 'StetwiseData')]) await adoptDataFolder(root);
     dataStore = new DataStore(automation ? path.join(app.getPath('userData'), 'StetwiseData') : savedStorage || defaultStorage);
     await dataStore.init();
     // An installation under Program Files (or a removed drive) cannot be written by a normal

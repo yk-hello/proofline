@@ -32,7 +32,7 @@
     "test:charts": "node scripts/charts-tables-smoke.mjs",
     "test:word": "node scripts/word-smoke.mjs",
     "desktop:pack:mac": "npm run build && electron-builder --mac --universal --publish never",
-    "test:integration": "node scripts/agents-storage.test.mjs",
+    "test:integration": "node scripts/agents-storage.test.mjs && node scripts/migrate.test.mjs",
     "test:adapters": "node scripts/cli-adapters.test.mjs",
     "test:review-desktop": "node scripts/review-desktop.test.mjs",
     "test:review-cli": "node scripts/review-cli.test.mjs",

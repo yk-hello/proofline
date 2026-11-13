@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,7 +85,8 @@ else setTimeout(()=>{ if(mode!=='closed') fs.writeFileSync(path.join(folder,'rep
     await page.locator('.terminal-review').waitFor({ state: 'detached', timeout: 15000 });
     assert.equal(JSON.parse(await readFile(path.join(folder, 'done.json'), 'utf8')).status, 'notes');
     const reply = await readFile(path.join(folder, 'reply.md'), 'utf8');
-    assert.ok(reply.includes(document), 'the task names the real file by its full path');
+    // By its real path: a temp folder named in its short 8.3 form (as on CI) is written out in full.
+    assert.ok(reply.includes(realpathSync.native(document)), 'the task names the real file by its full path');
     assert.match(reply, /expect no issues/); assert.match(reply, /Name the risk instead\./);
     assert.ok(!/\[\[SW-|\.stetwise/.test(reply), 'no anchors and no working copy in a terminal task');
   });

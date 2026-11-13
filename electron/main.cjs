@@ -7,7 +7,7 @@ async function readClipboardHtml() {
   return '';
 }
 const fs = require('node:fs/promises');
-const { statSync, existsSync, writeFileSync } = require('node:fs');
+const { statSync, existsSync, writeFileSync, realpathSync } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -69,9 +69,13 @@ function takeReviewRequest(argv) {
   const folder = path.resolve(String(argv[at + 1])), file = requestedPaths(argv)[0];
   // Only a folder the command just made in the system temp folder, holding its request file.
   try {
-    if (!file || !inside(path.resolve(os.tmpdir()), folder) || !/^stetwise-review-/.test(path.basename(folder)) || !statSync(path.join(folder, 'request.json')).isFile()) return;
+    // Compared as real paths: the same temp folder can be named in its short 8.3 form (RUNNER~1) by one process and in full by another.
+    const real = (value) => realpathSync.native(value);
+    if (!file || !inside(real(os.tmpdir()), real(folder)) || !/^stetwise-review-/.test(path.basename(folder)) || !statSync(path.join(folder, 'request.json')).isFile()) return;
   } catch { return; }
-  reviewRequests.set(folder, file); reviewQueue.push({ folder, path: file });
+  // The page finds the document by the path it was opened with, which is its real path.
+  let opened = file; try { opened = realpathSync.native(file); } catch { /* the open fails later and says why */ }
+  reviewRequests.set(folder, opened); reviewQueue.push({ folder, path: opened });
 }
 function finishReview(folder, status, text = '') {
   if (!reviewRequests.delete(folder)) return false;

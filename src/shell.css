@@ -2,7 +2,9 @@
 :root {
   --ui-font: "Inter Tight", "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   --cjk-font: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei UI", sans-serif;
-  --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  /* Chinese in mono labels and code goes to the bundled Noto Sans SC. Left to the generic
+   * monospace, Windows picks NSimSun, whose small-size bitmaps look jagged. */
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei UI", monospace;
   --reader-font: var(--cjk-font);
   --paper: #ffffff;
   --canvas: #ffffff;
@@ -173,7 +175,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .sidebar.collapsed { width: 0; flex-basis: 0; border: 0; }
 .side-tabs { flex: 0 0 46px; display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
 .side-tabs > button[role="tab"] { padding: 0 16px; border: 0; color: var(--faint); background: transparent; font: 500 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
-.side-tabs > button[role="tab"].active { color: var(--ink); box-shadow: inset 0 -3px 0 var(--shadow); font-weight: 700; }
+.side-tabs > button[role="tab"].active { color: var(--ink); box-shadow: inset 0 -3px 0 var(--ink); font-weight: 700; }
 .side-tabs .sidebar-toggle { margin: auto 6px auto auto; }
 .side-files, .side-contents { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .side-files { padding: 14px 12px 10px; }
@@ -194,7 +196,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .workspace-file-list { min-height: 0; overflow-y: auto; }
 .workspace-file, .workspace-folder { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 32px; padding-block: 4px; border: 0; color: var(--secondary); background: transparent; text-align: left; }
 .workspace-file:hover, .workspace-folder:hover { color: var(--ink); background: var(--hover); }
-.workspace-file.active { color: var(--ink); background: var(--hover); box-shadow: inset 3px 0 0 var(--shadow); }
+.workspace-file.active { color: var(--ink); background: var(--hover); box-shadow: inset 3px 0 0 var(--ink); }
 .workspace-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .recent-heading-actions { display: flex; align-items: center; gap: 4px; }
@@ -202,7 +204,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .recent-list { min-height: 0; overflow-y: auto; }
 .recent-entry { position: relative; }
 .recent-entry:hover { background: var(--hover); }
-.recent-entry.active { background: var(--hover); box-shadow: inset 3px 0 0 var(--shadow); }
+.recent-entry.active { background: var(--hover); box-shadow: inset 3px 0 0 var(--ink); }
 .recent-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 54px; padding: 8px 34px 8px 8px; border: 0; background: transparent; text-align: left; }
 .file-glyph { flex: 0 0 20px; display: grid; place-items: center; color: var(--secondary); }
 .recent-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
@@ -220,7 +222,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .outline-summary { padding: 14px 18px 8px; color: var(--faint); font: 500 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
 .outline-list { flex: 1; min-height: 0; padding: 0 8px; }
 .outline-row { display: flex; align-items: center; min-height: 34px; }
-.outline-row.active { background: var(--hover); box-shadow: inset 3px 0 0 var(--shadow); }
+.outline-row.active { background: var(--hover); box-shadow: inset 3px 0 0 var(--ink); }
 .outline-row.level-2 { padding-left: 12px; }
 .outline-row.level-3 { padding-left: 24px; }
 .outline-row.level-4, .outline-row.level-5, .outline-row.level-6 { padding-left: 34px; }
@@ -366,7 +368,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .rail-head { flex: 0 0 56px; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid var(--ink); }
 .rail-tabs { display: flex; align-items: stretch; }
 .rail-tabs button { display: flex; align-items: center; gap: 8px; padding: 0 16px; border: 0; color: var(--faint); background: transparent; font: 900 20px var(--ui-font); letter-spacing: -.02em; }
-.rail-tabs button.active { color: var(--ink); box-shadow: inset 0 -4px 0 var(--shadow); }
+.rail-tabs button.active { color: var(--ink); box-shadow: inset 0 -4px 0 var(--ink); }
 .rail-count { padding: 0 6px; color: var(--on-accent); background: var(--red); font: 700 12px/1.6 var(--mono); letter-spacing: 0; }
 .rail-count.quiet { color: var(--ink); background: var(--hover); }
 .rail-head > .icon-button { align-self: center; margin-right: 6px; }
@@ -389,7 +391,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .rail-item.active.type-free { box-shadow: inset 4px 0 0 #6250d6; }
 .rail-document-instruction { color: var(--secondary); }
 .rail-item.active.type-expand { box-shadow: inset 4px 0 0 #ffb000; }
-.rail-item.active.type-delete { box-shadow: inset 4px 0 0 var(--shadow); }
+.rail-item.active.type-delete { box-shadow: inset 4px 0 0 var(--ink); }
 .rail-item.status-resolved .rail-item-quote, .rail-item.status-resolved .rail-item-note { color: var(--faint); text-decoration: line-through; text-decoration-color: #bdbdbd; }
 .rail-item-body { min-width: 0; flex: 1; display: grid; gap: 6px; padding: 14px 16px 14px 16px; border: 0; background: transparent; text-align: left; }
 .rail-item:hover { background: var(--panel); }
@@ -873,7 +875,7 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .reading-stats-label { margin-top: 0; }
 .outline-reading-actions { grid-column: 1 / -1; margin-top: 8px; }
 .rail-tabs button { font: 800 16px var(--ui-font); letter-spacing: -.01em; }
-.rail-tabs button.active { box-shadow: inset 0 -3px 0 var(--shadow); }
+.rail-tabs button.active { box-shadow: inset 0 -3px 0 var(--ink); }
 /* Secondary controls get a hairline. The heavy rule stays on dialogs and the one primary action. */
 .round-bar, .round-bar button, .review-bar > button, .segmented, .copy-task-button, .send-options { border-width: 1px; }
 /* The language choice in Settings. */

@@ -63,8 +63,9 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ value, language = 'z
   latest.current = onChange;
 
   useImperativeHandle(ref, () => ({
-    undo: () => crepeRef.current?.editor.action(callCommand(undoCommand.key)),
-    redo: () => crepeRef.current?.editor.action(callCommand(redoCommand.key)),
+    // True when the editor had something of its own to undo (or redo).
+    undo: () => Boolean(crepeRef.current?.editor.action(callCommand(undoCommand.key))),
+    redo: () => Boolean(crepeRef.current?.editor.action(callCommand(redoCommand.key))),
     flush: () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; emit(); } },
     focus: () => host.current?.querySelector('.ProseMirror')?.focus(),
   }));

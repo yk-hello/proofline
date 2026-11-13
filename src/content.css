@@ -1,5 +1,5 @@
 /* Reading typography for rendered Markdown. */
-.document-content { max-width: var(--reader-column-width); margin: 0 auto; padding: 0 0 60px; color: var(--body); font-family: var(--reader-font); font-size: var(--reader-size); line-height: var(--reader-leading); overflow-wrap: break-word; font-feature-settings: "palt" 0; text-align: justify; text-justify: inter-ideograph; hanging-punctuation: allow-end; }
+.document-content { max-width: var(--reader-column-width); margin: 0 auto; padding: 0 0 60px; color: var(--body); font-family: var(--reader-font); font-size: var(--reader-size); line-height: var(--reader-leading); overflow-wrap: break-word; font-feature-settings: "palt" 0; text-align: var(--doc-align, justify); text-justify: inter-ideograph; hanging-punctuation: allow-end; }
 .reading-workspace .reading-layout.reader-font-serif, .reader-font-serif { --reader-font: "Noto Serif SC", "Source Han Serif SC", "思源宋体", Georgia, serif; }
 .reading-workspace .reading-layout.reader-size-small, .reader-size-small { --reader-size: 15px; }
 .reading-workspace .reading-layout.reader-size-medium, .reader-size-medium { --reader-size: 16px; }
@@ -70,6 +70,10 @@
 .large-plain-block { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Generated text, so it is never part of the selection, a mark or the document itself. */
 .large-document-chunk [data-edit-region][data-note]::before { content: attr(data-note); display: block; margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--line-mid); background: var(--panel-2); color: var(--secondary); font: 400 13px/1.5 var(--reader-font); white-space: normal; }
+/* A code block too large for one part of a long document: pieces that join into one block.
+   The fence lines stay in the text (positions are counted in it) but are not shown. */
+.document-content pre.large-code-piece { margin: 0; border-radius: 0; white-space: pre; overflow-x: auto; overflow-wrap: normal; }
+.document-content pre.large-code-piece .code-fence { display: none; }
 /* A table too large for one part of a long document is drawn in pieces that join into one
    table: equal columns, so the pieces line up, and no gap between them. */
 .document-content table.pl-table-part { table-layout: fixed; margin-bottom: 0; }

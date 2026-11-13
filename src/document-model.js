@@ -9,6 +9,8 @@ export function headingSlug(text, index = 0) {
 const TABLE_DELIMITER = /^ {0,3}\|[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 // Rows per piece of a split table are bounded by size, so each piece is quick to draw.
 const TABLE_PIECE = 8000;
+// Once a code block has outgrown its chunk, the rest of it is cut into pieces this size.
+const CODE_PIECE = 12000;
 
 export function analyzeDocument(source, progress = () => {}) {
   const outline = [];
@@ -24,14 +26,17 @@ export function analyzeDocument(source, progress = () => {}) {
   // cut before. Only a table too large for one chunk is cut; `chunkTable` then marks the
   // chunk in progress as one of its pieces, so the reader can draw every piece as a table.
   let table = null, chunkTable = null;
+  // The language of the code block a plain chunk belongs to ('' when none is named), or null
+  // when the chunk is plain for another reason. The reader shows such a chunk as code.
+  let chunkCode = null;
   const tableHeight = (rows) => Math.max(60, rows * 41);
   function flush(end) {
     if (end <= start) return;
     const chars = end - start;
-    chunks.push({ start, end, line: chunkLine, headingStart, plain: chunkPlain, ...(chunkTable ? { table: chunkTable } : {}),
+    chunks.push({ start, end, line: chunkLine, headingStart, plain: chunkPlain, ...(chunkTable ? { table: chunkTable } : {}), ...(chunkPlain && chunkCode !== null ? { code: chunkCode } : {}),
       // A bounded initial estimate; measured heights replace it when a chunk is read.
       height: chunkTable ? tableHeight(line - chunkLine) : Math.max(200, Math.min(6000, (line - chunkLine) * 18 + chars / 45 * 8)) });
-    start = end; chunkLine = line; headingStart = outline.length; chunkPlain = Boolean(fence);
+    start = end; chunkLine = line; headingStart = outline.length; chunkPlain = Boolean(fence); chunkCode = fence ? fence.language : null;
     chunkTable = table?.split ? { headStart: table.start, headEnd: table.headEnd } : null;
   }
   // Called when a table has outgrown its chunk: cut it at the rows noted so far, and keep
@@ -88,10 +93,11 @@ export function analyzeDocument(source, progress = () => {}) {
     if (!fence && !oversizedLine && (heading || !raw.trim())) { boundary = offset; boundaryLine = line; boundaryHeading = outline.length; }
     // Split at structural boundaries, leaving normal tables, lists, quotes and fences whole.
     if (!fence && offset - start >= 5000 && (heading || !raw.trim())) flush(offset);
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(raw);
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)/.exec(raw);
+    let closedCode = null;   // the language of a code block that ends on this line
     if (fenceMatch) {
-      if (!fence) fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
-      else if (fenceMatch[1][0] === fence.char && fenceMatch[1].length >= fence.length) fence = null;
+      if (!fence) fence = { char: fenceMatch[1][0], length: fenceMatch[1].length, language: fenceMatch[2].toLowerCase() };
+      else if (fenceMatch[1][0] === fence.char && fenceMatch[1].length >= fence.length) { closedCode = fence.language; fence = null; }
     } else if (!fence) {
       const reference = /^ {0,3}\[(\^?[^\]\n]+)\]:/.exec(raw);
       if (reference) {
@@ -117,10 +123,13 @@ export function analyzeDocument(source, progress = () => {}) {
     previousLine = !fence && !oversizedLine ? { text: raw, offset, line: line - 1 } : null;
     offset = next;
     // An enormous single block still gets bounded rendering; its fallback is plain text.
-    if (table && !oversizedLine && offset - start >= 40000) {
+    if (closedCode !== null && chunkPlain && chunkCode !== null) {
+      // The split code block ends here: its last piece stops with it, and what follows is formatted again.
+      flush(offset);
+    } else if (table && !oversizedLine && offset - start >= 40000) {
       // A table too large for one chunk is cut between rows instead of falling back to plain text.
       if (table.split) flush(offset); else splitTable();
-    } else if (oversizedLine || offset - start >= 40000) {
+    } else if (oversizedLine || offset - start >= (fence && chunkPlain && chunkCode !== null ? CODE_PIECE : 40000)) {
       const oversizedBlock = Boolean(fence) || (!heading && !imageLine) || oversizedLine;
       // Only the oversized block itself falls back to plain text: what stands before it in
       // this chunk (headings, paragraphs) is cut off first and keeps its formatting.
@@ -131,6 +140,7 @@ export function analyzeDocument(source, progress = () => {}) {
         for (let index = boundaryHeading; index < outline.length; index++) outline[index].chunk += 1;
         start = boundary; chunkLine = boundaryLine; headingStart = boundaryHeading;
       }
+      if (oversizedBlock && !chunkPlain) chunkCode = oversizedLine ? null : fence ? fence.language : closedCode;
       if (oversizedBlock) chunkPlain = true;
       flush(offset);
     }

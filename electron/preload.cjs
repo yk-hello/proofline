@@ -31,6 +31,14 @@ contextBridge.exposeInMainWorld('mengxDesktop', {
   revealExport: (filename) => invoke('revealExport', filename),
   openExported: (filename) => invoke('openExported', filename),
   copyRich: (html, text) => invoke('copyRich', html, text),
+  copyText: (text) => invoke('copyText', text),
+  reviewReply: (folder, status, text) => invoke('reviewReply', folder, status, text),
+  reviewCommand: () => invoke('reviewCommand'),
+  onReviewRequest: (handler) => {
+    const listener = (_event, request) => handler(request);
+    ipcRenderer.on('mengx:review-request', listener);
+    return () => ipcRenderer.removeListener('mengx:review-request', listener);
+  },
   copyImage: (id, source, bytes) => invoke('copyImage', id, source, bytes),
   revealResource: (id, source) => invoke('revealResource', id, source),
   finishClose: (result) => ipcRenderer.send('mengx:finish-close', result),

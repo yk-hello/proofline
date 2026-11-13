@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import EditableMarkdown from './EditableMarkdown';
 import { textMatches } from './search';
 import { sourceForChunk } from './document-model';
+import { highlightCodePiece } from './lib/render';
 
 const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOptions, searchOffset, renderMarkdown, onClick, editable, drafts, onInput, onBeforeInput, sourceMode, note }) {
   // While editing, a piece of a split table is edited as its own source rows.
@@ -28,8 +29,12 @@ const Chunk = memo(function Chunk({ source, definitions, chunk, query, searchOpt
     container.append(document.createTextNode(plainSource.slice(start)));
     return container.innerHTML;
   }, [plain, sourceMode, plainSource, query, searchOptions, searchOffset]);
-  return <EditableMarkdown plain={plain} html={plain ? plainHtml : draft?.html ?? html}
-    className={sourceMode ? 'large-plain-block source-plain-block' : asSource ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
+  // A piece of a large code block is shown as code. While searching, or while it is being
+  // edited as text, it stays plain: matches and edits are counted in the plain text.
+  const asCode = !sourceMode && !editable && !query && chunk.plain && chunk.code !== undefined;
+  const codeHtml = useMemo(() => (asCode ? highlightCodePiece(plainSource, chunk.code) : ''), [asCode, plainSource, chunk.code]);
+  return <EditableMarkdown plain={plain} html={asCode ? codeHtml : plain ? plainHtml : draft?.html ?? html}
+    className={sourceMode ? 'large-plain-block source-plain-block' : asCode ? 'large-plain-block large-code-piece hljs' : asSource ? 'large-plain-block' : undefined} region={String(chunk.start)} editable={editable}
     note={sourceMode ? undefined : note}
     onBeforeInput={onBeforeInput} onInput={(event) => onInput?.(chunk, event.currentTarget, plain)} onClick={onClick} />;
 });
@@ -181,7 +186,8 @@ export default function LargeDocumentView({ markdown, model, query, searchOption
   const asSource = (chunk) => Boolean(chunk) && (chunk.plain || (editable && Boolean(chunk.table)));
   const noteFor = (index) => {
     const chunk = model.chunks[index];
-    if (asSource(chunk)) return asSource(model.chunks[index - 1]) ? undefined : plainNote;
+    // Code shown as code has lost nothing, so it needs no note.
+    if (asSource(chunk)) return asSource(model.chunks[index - 1]) || (chunk.code !== undefined && !editable) ? undefined : plainNote;
     return chunk.table?.chart ? chartNote : undefined;
   };
 

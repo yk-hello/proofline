@@ -16,6 +16,28 @@ import { DEFAULT_SEARCH_OPTIONS, textMatches } from '../search';
 
 for (const [name, syntax] of Object.entries({ javascript, typescript, python, json, bash, css, xml, sql })) hljs.registerLanguage(name, syntax);
 
+const escapeHtml = (text) => text.replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[char]));
+const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})[^\n]*$/;
+/**
+ * A piece of a code block too large for one part of a long document, as highlighted HTML.
+ * The text is the source exactly (search, marks and positions count characters in it); the
+ * fence lines are kept in it but wrapped so they can be hidden.
+ */
+export function highlightCodePiece(text, language) {
+  const lines = text.split('\n');
+  let head = 0; while (head < lines.length && !lines[head].trim()) head++;
+  const opens = head < lines.length && FENCE_LINE.test(lines[head]) ? head + 1 : 0;
+  let tail = lines.length; while (tail > opens && !lines[tail - 1].trim()) tail--;
+  const closes = tail > opens && FENCE_LINE.test(lines[tail - 1]) && (opens === 0 || tail - 1 > head) ? tail - 1 : lines.length;
+  const before = lines.slice(0, opens).join('\n') + (opens ? '\n' : '');
+  const body = lines.slice(opens, closes).join('\n') + (closes < lines.length ? '\n' : '');
+  const after = lines.slice(closes).join('\n');
+  const known = language && hljs.getLanguage(language);
+  const code = known ? hljs.highlight(body, { language, ignoreIllegals: true }).value : escapeHtml(body);
+  const fence = (part) => (part ? `<span class="code-fence">${escapeHtml(part)}</span>` : '');
+  return fence(before) + code + fence(after);
+}
+
 export function headingSlug(text, index = 0) {
   const base = text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/(^-|-$)/g, '') || 'section';
   return `${base}-${index}`;

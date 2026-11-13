@@ -50,7 +50,7 @@ try {
     assert.equal(await readFile(file,'utf8'),original,'No write before review acceptance');
     await page.screenshot({path:path.join(output,'gemini-review.png')});
     assert.ok(await page.locator('.review-hunk').count());
-    await page.locator('.review-bar').getByRole('button',{name:'全部接受',exact:true}).click();
+    await page.locator('.review-bar').getByRole('button',{name:'全部保留',exact:true}).click();
     await page.locator('.review-bar .primary-button').click();
     await page.locator('.review-view').waitFor({state:'detached'}); await saved();
     assert.equal(await readFile(file,'utf8'),original.replace('10','20'));
@@ -178,11 +178,46 @@ try {
   await page.locator('.review-view').waitFor({timeout:30000});
   assert.match(await page.locator('.review-scope').innerText(),/没选中的 2 处/);
   assert.match(await page.locator('.review-risk').first().innerText(),/数字变了/);
-  await page.locator('.review-bar').getByRole('button',{name:'全部接受',exact:true}).click();
+  await page.locator('.review-bar').getByRole('button',{name:'全部保留',exact:true}).click();
   await page.locator('.review-bar .primary-button').click();
   await page.locator('.review-view').waitFor({state:'detached'}); await saved();
   assert.equal(await readFile(digits,'utf8'),digitsSource.replace('36361','363gemini1'));
   report.checks.push('precise-anchor-scope');
+
+  // Quick send: with an AI used before and nothing to warn about, Send goes straight to the run.
+  const quick=path.join(output,'quick.md'), quickSource='# Quick\n\nThe cost is 6 units.\n';
+  await writeFile(quick,quickSource);
+  const quickScript=path.join(output,'quick-cli.cjs');
+  await writeFile(quickScript,'const fs=require("node:fs");const f=process.argv[2];fs.writeFileSync(f,fs.readFileSync(f,"utf8").replace(/\\[\\[SW-1\\]\\][^]*?\\[\\[\\/SW-1\\]\\]/,"[[SW-1]]price[[/SW-1]]"));console.log("#1 changed");');
+  await page.evaluate(async({node,script})=>{
+    const key='redline-agent-settings-v1', settings=JSON.parse(localStorage.getItem(key)||'{}');
+    settings.customs=[{id:'quick-fixture',name:'Quick fixture',template:'"'+node+'" "'+script+'" "{file}"'}]; settings.lastAgent='quick-fixture'; settings.lastScope='file';
+    await window.mengxDesktop.system.writeAgentSettings(settings);localStorage.setItem(key,JSON.stringify(settings));
+  },{node:process.execPath,script:quickScript});
+  await invoke('openPath',[quick]);
+  const selectWord=(word)=>page.evaluate((word)=>{ const walker=document.createTreeWalker(document.querySelector('.document-content'),NodeFilter.SHOW_TEXT); let node; while((node=walker.nextNode())){ const at=node.nodeValue.indexOf(word); if(at>=0){ const r=document.createRange(); r.setStart(node,at); r.setEnd(node,at+word.length); const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r); node.parentElement.dispatchEvent(new PointerEvent('pointerup',{bubbles:true})); return sel.toString(); } } return ''; },word);
+  assert.equal(await selectWord('cost'),'cost');
+  await page.locator('.selection-tools .sel-type.type-fix').click();
+  await page.locator('.mark-popover textarea').fill('Say price');
+  await page.keyboard.press('Escape'); await markSaved();
+  await page.locator('.rail-tabs button').first().click();
+  await page.locator('.rail-actions .send-button').click();
+  await page.locator('.review-view').waitFor({timeout:30000});
+  assert.equal(await page.locator('.send-dialog').count(),0,'no dialog on a quick send');
+  await page.locator('.review-bar').getByRole('button',{name:'全部保留',exact:true}).click();
+  await page.locator('.review-bar .primary-button').click();
+  await page.locator('.review-view').waitFor({state:'detached'}); await saved();
+  assert.equal(await readFile(quick,'utf8'),quickSource.replace('cost','price'));
+  // The options button always opens the dialog, to choose another AI or scope.
+  assert.equal(await selectWord('units'),'units');
+  await page.locator('.selection-tools .sel-type.type-fix').click();
+  await page.locator('.mark-popover textarea').fill('Use a clearer word');
+  await page.keyboard.press('Escape'); await markSaved();
+  await page.locator('.rail-tabs button').first().click();
+  await page.locator('.rail-actions .send-options').click();
+  await page.locator('.send-dialog').waitFor();
+  await page.locator('.send-dialog .dialog-actions').getByRole('button',{name:'取消',exact:true}).click();
+  report.checks.push('quick-send','send-options-dialog');
   assert.deepEqual(report.errors,[]); report.ok=true;
 } catch(error) { report.ok=false; report.failure=error.stack; if(page) await page.screenshot({path:path.join(output,'failure.png')}).catch(()=>{}); throw error; }
 finally { if(app) await close(); await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)); console.log(JSON.stringify(report)); }

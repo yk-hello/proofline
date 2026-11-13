@@ -27,7 +27,12 @@ function composeWithEdits(diff, decisions, edits) {
   return output;
 }
 
-function WordDiff({ before, after }) {
+// A change inside running text is clearest as one passage with the changed words marked.
+// Added or removed blocks, and tables, code, charts, pictures and formulas, are clearer as
+// formatted before and after.
+const inline = (blocks) => blocks.length > 0 && blocks.every((block) => !/^\s*(?:\||```|~~~|<|\$\$|!\[)/m.test(block.text));
+
+export function WordDiff({ before, after }) {
   const parts = useMemo(() => diffArrays(tokens(before), tokens(after)), [before, after]);
   return <pre className="word-diff">{parts.map((part, index) => <span key={index} className={part.added ? 'ins' : part.removed ? 'del' : ''}>{part.value.join('')}</span>)}</pre>;
 }
@@ -51,7 +56,8 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
   const [edits, setEdits] = useState(() => initial.edits || {});
   const [editing, setEditing] = useState(null);
   const [replies, setReplies] = useState(() => initial.replies || {});
-  const [mode, setMode] = useState('rendered');
+  // Word diff first: it shows which words changed. See `inline` below for where it applies.
+  const [mode, setMode] = useState('words');
   const [view, setView] = useState(initial.view || 'changes');
   const [expanded, setExpanded] = useState(() => new Set());
   const [focus, setFocus] = useState(0);
@@ -169,6 +175,7 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
             <div className="review-hunk-head">
               <span className="review-hunk-number">{String(position + 1).padStart(2, '0')}</span>
               {related.map((task) => <span key={task.id} className={`mark-chip type-${task.type}`}>#{task.n} {typeLabel(language, task.type)}</span>)}
+              {review.checkAsked && related.length === 0 && <span className="review-risk risk-unasked" title={t(language, 'notAskedHint')}>{t(language, 'notAsked')}</span>}
               {(risks.get(hunk.id) || []).map((risk) => <span key={risk.kind} className={`review-risk risk-${risk.kind}`} title={t(language, `riskHint.${risk.kind}`)}>
                 {t(language, `risk.${risk.kind}`)}{risk.lost || risk.gained ? <small>{(risk.lost || []).join(' ') || '∅'} → {(risk.gained || []).join(' ') || '∅'}</small> : null}</span>)}
               <span className="spacer" />
@@ -187,7 +194,7 @@ export default function ReviewView({ language, review, renderMarkdown, onApply, 
               <div className="review-edit-actions"><small>{t(language, 'editChangeHint')}</small>
                 {typeof edits[hunk.id] === 'string' && <button onClick={() => setEdits((current) => { const next = { ...current }; delete next[hunk.id]; return next; })}>{t(language, 'useAiVersion')}</button>}
                 <button className="primary-button" onClick={() => { setEditing(null); setDecisions((current) => ({ ...current, [hunk.id]: 'accept' })); }}>{t(language, 'acceptEdited')} <kbd>{modifierKey()} ↵</kbd></button></div>
-            </div> : mode === 'words' ? <WordDiff before={text(before)} after={typeof edits[hunk.id] === 'string' ? edits[hunk.id].trim() : text(after)} /> : <div className="review-pair">
+            </div> : mode === 'words' && inline(before) && inline(after) ? <WordDiff before={text(before)} after={typeof edits[hunk.id] === 'string' ? edits[hunk.id].trim() : text(after)} /> : <div className="review-pair">
               {before.length > 0 && <div className="document-content review-content review-before" dangerouslySetInnerHTML={{ __html: html(before) }} />}
               {after.length > 0 && <div className={`document-content review-content review-after ${typeof edits[hunk.id] === 'string' ? 'review-edited' : ''}`} dangerouslySetInnerHTML={{ __html: typeof edits[hunk.id] === 'string' ? renderMarkdown(edits[hunk.id]) : html(after) }} />}
             </div>}

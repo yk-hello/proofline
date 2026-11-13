@@ -92,5 +92,15 @@ console.log(JSON.stringify({ bytes: Buffer.byteLength(large), chunks: model.chun
   checkCoverage(code, codeModel);
   assert.equal(codeModel.chunks[0].plain, false);
   assert.ok(code.slice(codeModel.chunks[1].start, codeModel.chunks[1].end).trimStart().startsWith('```js'));
+  // The code block is cut into pieces that know their language; it ends with its closing fence.
+  const codePieces = codeModel.chunks.filter((chunk) => chunk.code !== undefined);
+  assert.ok(codePieces.length > 3 && codePieces.every((chunk) => chunk.plain && chunk.code === 'js'));
+  assert.ok(codePieces.slice(1).every((chunk) => chunk.end - chunk.start <= 13000), 'later pieces are small enough to highlight quickly');
+  assert.ok(code.slice(codePieces.at(-1).start, codePieces.at(-1).end).endsWith('```\n'));
+  const afterCode = codeModel.chunks[codeModel.outline.find((heading) => heading.text === '之后').chunk];
+  assert.ok(!afterCode.plain && afterCode.code === undefined, 'text after the code block is formatted again');
+  // A long line that is not code stays plain, and is not mistaken for code.
+  const longLine = analyzeDocument(`# 行\n\n${'字'.repeat(90000)}\n\n完。\n`);
+  assert.ok(longLine.chunks.some((chunk) => chunk.plain) && longLine.chunks.every((chunk) => chunk.code === undefined));
   console.log('oversized table is cut between rows, text before a large block stays formatted ok');
 }

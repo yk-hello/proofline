@@ -18,7 +18,7 @@ try {
   const page = await context.newPage();
   page.on('pageerror', (error) => errors.push(error.message));
   for (let attempt = 0; ; attempt++) {
-    try { await page.goto(`http://127.0.0.1:${port}/`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); }
+    try { await page.goto(`http://127.0.0.1:${port}/?lang=zh`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); }
   }
   await page.waitForFunction(() => window.stetwiseReader?.getState().document.ready);
 
@@ -54,7 +54,7 @@ try {
   await page.locator('.mark-popover textarea').fill('说得更具体');
   await page.keyboard.press('Escape');
   // 2. Keyboard shortcut for an ask redline, and a personal highlight.
-  await select('接受或驳回之后才写回文件');
+  await select('保留或改回之后才写回文件');
   await page.keyboard.press('q');
   await page.locator('.mark-popover textarea').fill('为什么要先审阅？');
   await page.keyboard.press('Escape');

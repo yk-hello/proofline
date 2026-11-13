@@ -53,7 +53,7 @@ export default function SetupWizard({ language, onClose, platform }) {
         <div><h2 id="setup-title">{copy.title}</h2><p>{copy.subtitle}</p></div>
         <div className="dialog-head-actions">
           <button className="icon-button quiet" onClick={() => void refresh(true)} aria-label={copy.recheck} title={copy.recheck}><RefreshCw size={16} /></button>
-          <button className="icon-button quiet" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          <button className="icon-button quiet" onClick={onClose} aria-label={language === 'zh' ? '关闭' : 'Close'} title={language === 'zh' ? '关闭' : 'Close'}><X size={16} /></button>
         </div>
       </header>
       <div className="setup-body">

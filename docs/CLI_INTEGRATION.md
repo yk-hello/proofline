@@ -58,6 +58,25 @@ Stetwise 每 3 秒检查子进程，超过 60 秒没有新输出时提示等待�
 
 整套数据迁移时复制 StetwiseData、源文档及其 .assets 目录。标记通过同名且内容完全一致的唯一匹配重新关联；内容已经变化、重名或多个匹配时，不能保证自动关联。运行历史内的旧绝对路径也不会自动变成新设备路径。
 
+## 和终端里已经开着的 AI 配合
+
+上面说的都是 Stetwise 自己启动一个 CLI。如果你已经在终端里和某个 AI 聊了很久，更省事的做法是让它来改，Stetwise 只负责看和核对。
+
+**你主动发**：在右侧点「复制成任务，贴给终端里的 AI」（命令面板里也有）。复制出来的任务带文件的完整路径，没有锚点也没有副本，AI 直接改这个文件。文件一保存，Stetwise 就显示新内容，并对照你的指令说明「几处在你标记的段落里，几处没让改」。
+
+**AI 主动请你审**：安装版自带 `stetwise-review` 命令（在安装目录里，Mac 在 `Stetwise.app/Contents/Resources/`）。
+
+```sh
+stetwise-review 文档.md            # 可选 --timeout <分钟>，默认 60
+```
+
+- 命令会在 Stetwise 里打开这篇文档并等待。文档顶部出现「终端里的 AI 在等你审这篇文档」。
+- 你标好之后点「把指令发回终端」，命令把指令打印到标准输出并以 0 退出；点「不用改」，输出一句「没有要改的地方」，同样以 0 退出。
+- 没回答就关掉 Stetwise，命令以 3 退出；超时以 2 退出；参数不对以 64 退出。
+- 请求通过系统临时目录里的一个文件夹传递（`stetwise-review-*`，里面是 `request.json`、`reply.md`、`done.json`），不监听任何端口；命令结束时会删掉这个文件夹。
+- 命令面板里的「复制「请我审」的命令，给终端里的 AI」会给出带完整路径的命令和一句说明，贴进 `CLAUDE.md` 或 `AGENTS.md` 即可。Claude Code 也可以把 `integrations/claude-code/stetwise-review` 复制到 `~/.claude/skills/` 下当技能用。
+- 便携版是单个自解压的程序，没有这个命令。开发时可以直接运行 `node electron/review-cli.cjs 文档.md`，并用环境变量 `STETWISE_APP`（可执行文件）和 `STETWISE_APP_ARGS`（JSON 数组）指明要启动的应用。
+
 ## 验证命令与参考
 
 ~~~sh

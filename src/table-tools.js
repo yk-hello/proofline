@@ -28,7 +28,8 @@ const cellText = (row) => [...row.cells].map((cell) => cell.textContent.trim());
 
 export function enhanceTables(root, labels) {
   root.querySelectorAll('table').forEach((table) => {
-    if (table.closest('.markdown-editor, .review-word-diff')) return;
+    // A piece of a split table holds only some of the rows: sorting or totalling it would mislead.
+    if (table.closest('.markdown-editor, .review-word-diff') || table.classList.contains('pl-table-part')) return;
     const rows = bodyRows(table);
     if (!table.tHead || rows.length < 2) return;
     const signature = JSON.stringify(rows.map(cellText));

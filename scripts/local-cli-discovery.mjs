@@ -24,7 +24,7 @@ const report = { host: process.platform, arch: process.arch, mode, otherEnvironm
 let app, page;
 try {
   const startedAt = Date.now();
-  app = await _electron.launch({ args: ['.', '--automation', '--hidden', '--user-data', path.join(output, 'profile'), '--export-directory', output], cwd: process.cwd(), env: environment, timeout: 60000 });
+  app = await _electron.launch({ args: ['.', '--automation', '--language', 'zh', '--hidden', '--user-data', path.join(output, 'profile'), '--export-directory', output], cwd: process.cwd(), env: environment, timeout: 60000 });
   page = await app.firstWindow();
   page.on('pageerror', error => report.errors.push(error.message));
   await page.waitForFunction(() => Boolean(window.mengxDesktop && window.stetwiseReader), null, { timeout: 30000 });
@@ -70,7 +70,7 @@ try {
         const reviewHunks = await page.locator('.review-hunk').count();
         assert.ok(reviewHunks, 'The CLI must actually edit the disposable document');
         await page.screenshot({path:path.join(output,item.id+'-review.png')});
-        await page.locator('.review-bar').getByRole('button',{name:'全部接受',exact:true}).click();
+        await page.locator('.review-bar').getByRole('button',{name:'全部保留',exact:true}).click();
         await page.locator('.review-bar .primary-button').click();
         await page.locator('.review-view').waitFor({state:'detached'});
         await page.waitForFunction(() => !window.stetwiseReader.getState().document.dirty && window.stetwiseReader.getState().document.saveState.status==='saved');

@@ -89,6 +89,22 @@ async function searchPath() {
 }
 
 // Windows spells it Path; a second PATH key would make the child's value unpredictable.
+/**
+ * Whether Codex is set up to sign in some other way than `codex login`: config.toml names a model
+ * provider of its own (a company gateway, a proxy, a local model) that does not ask for the
+ * OpenAI sign-in. `codex login status` then says "Not logged in" although Codex works.
+ */
+async function codexOwnProvider(env = process.env) {
+  try {
+    const text = await fs.readFile(path.join(env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'config.toml'), 'utf8');
+    const top = text.split(/^\s*\[/m)[0];
+    const provider = /^\s*model_provider\s*=\s*["']([^"']+)["']/m.exec(top)?.[1];
+    if (!provider || provider === 'openai') return false;
+    const section = new RegExp(String.raw`^\s*\[model_providers\.(?:"|')?${provider.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:"|')?\]\s*$([\s\S]*?)(?=^\s*\[|(?![\s\S]))`, 'm').exec(text)?.[1] || '';
+    return !/^\s*requires_openai_auth\s*=\s*true\b/m.test(section);
+  } catch { return false; }
+}
+
 async function envWithPath(extra = {}) {
   const env = { ...await shellVariables() };
   for (const [key, value] of Object.entries(process.env)) if (key.toUpperCase() !== 'PATH') env[key] = value;
@@ -224,7 +240,14 @@ async function detect(overrides = {}, { refresh = false } = {}) {
       if (version) {
         const help = await runCommand(found, adapter.id === 'codex' ? ['exec', '--help'] : adapter.id === 'opencode' ? ['run', '--help'] : ['--help'], { timeout: 15000 });
         let auth = 'unknown';
-        if (adapter.id === 'codex') { const login = await runCommand(found, ['login', 'status'], { timeout: 10000 }); auth = login.ok ? 'ready' : /not logged|log in|login/i.test(login.stdout + login.stderr) ? 'required' : 'unknown'; }
+        if (adapter.id === 'codex') {
+          if (await codexOwnProvider({ ...await shellVariables(), ...process.env })) auth = 'configured';
+          else {
+            // `codex login status` prints "Not logged in" and still exits 0: read the words, not only the exit code.
+            const login = await runCommand(found, ['login', 'status'], { timeout: 10000 }), said = login.stdout + login.stderr;
+            auth = /not logged in|not signed in|log ?in (?:first|required)/i.test(said) ? 'required' : login.ok && /logged in|signed in/i.test(said) ? 'ready' : 'unknown';
+          }
+        }
         if (adapter.id === 'claude-code') {
           // The copy bundled with the Claude desktop app does not share the app's sign-in.
           const env = { ...await shellVariables(), ...process.env };
@@ -252,11 +275,12 @@ async function detect(overrides = {}, { refresh = false } = {}) {
 }
 
 function validateArgs(args, help = '') {
-  if (!help.trim()) return { ok: false, unsupported: [], message: '未能读取此版本的参数说明，请在终端检查 --help 或使用手动交接' };
+  if (!help.trim()) return { ok: false, unsupported: [], message: '未能读取此版本的参数说明，请在终端检查 --help 或使用手动交接', messages: { zh: '未能读取此版本的参数说明，请在终端检查 --help 或使用手动交接', en: 'Could not read the argument help of this version. Check --help in a terminal, or hand the task over by hand.' } };
   const declared = helpFlags(help);
   const flags = splitTemplate(args).filter((arg) => /^--?[a-zA-Z]/.test(arg)).map((arg) => arg.split('=')[0]);
   const unsupported = [...new Set(flags.filter((flag) => !declared.has(flag)))];
-  return { ok: unsupported.length === 0, unsupported, message: unsupported.length ? '此版本未声明支持参数：' + unsupported.join(', ') + '。请更新 CLI、覆盖参数或手动交接。' : '' };
+  const zh = unsupported.length ? '此版本未声明支持参数：' + unsupported.join(', ') + '。请更新 CLI、覆盖参数或手动交接。' : '';
+  return { ok: unsupported.length === 0, unsupported, message: zh, messages: { zh, en: unsupported.length ? 'This version does not list these arguments: ' + unsupported.join(', ') + '. Update the CLI, override the arguments, or hand the task over by hand.' : '' } };
 }
 
 function helpFlags(help = '') {
@@ -289,16 +313,18 @@ function connectionArgs(item) {
 }
 
 function diagnose(output, { timedOut = false, code = null, spawnError = false } = {}) {
-  if (/must specify.*(?:GEMINI_API_KEY|GOOGLE_API_KEY)|(?:GEMINI_API_KEY|GOOGLE_API_KEY).*not set|select.*auth.*method|please.*set.*auth/i.test(output)) return { code: 'login-required', message: 'Gemini CLI 当前登录方式缺少 API 环境变量。打开终端运行 gemini，选择 Google 登录或配置 API key，再重新测试；不要把密钥填进任务或日志。' };
-  if (timedOut) return { code: 'timeout', message: '任务超过所设时限。检查日志后可重新发送，或在设置里延长时限。' };
-  if (spawnError) return { code: 'launch-failed', message: '进程未能启动。检查可执行路径、Node 环境和文件权限。' };
-  if (/not logged|not authenticated|authentication required|login required|please (?:log|sign) in|401|unauthorized/i.test(output)) return { code: 'login-required', message: 'CLI 尚未登录。点击“打开终端登录”，完成后重新检测。桌面应用的登录不会自动等同于 CLI 登录。' };
+  if (/must specify.*(?:GEMINI_API_KEY|GOOGLE_API_KEY)|(?:GEMINI_API_KEY|GOOGLE_API_KEY).*not set|select.*auth.*method|please.*set.*auth/i.test(output)) return { code: 'login-required', message: 'Gemini CLI 当前登录方式缺少 API 环境变量。打开终端运行 gemini，选择 Google 登录或配置 API key，再重新测试；不要把密钥填进任务或日志。', messages: { zh: 'Gemini CLI 当前登录方式缺少 API 环境变量。打开终端运行 gemini，选择 Google 登录或配置 API key，再重新测试；不要把密钥填进任务或日志。', en: 'Gemini CLI\'s sign-in method is missing its API environment variables. Open a terminal, run gemini, choose Google sign-in or set an API key, then test again. Do not put keys in tasks or logs.' } };
+  // Checked before the time limit: a CLI that keeps retrying a missing model also runs out of time.
+  if (/model_not_found|no available channel for model|model[^\n]{0,60}(?:not found|not available|does not exist|is not supported)|unknown model|invalid model/i.test(output)) return { code: 'model', message: '服务端没有这个 CLI 设定的模型，或这个模型当前不可用。检查 CLI 的模型设置，或换成你的服务支持的模型。', messages: { zh: '服务端没有这个 CLI 设定的模型，或这个模型当前不可用。检查 CLI 的模型设置，或换成你的服务支持的模型。', en: "The service cannot run the model this CLI is set to (not found or not available there). Check the CLI's model setting, or pick a model your provider supports." } };
+  if (timedOut) return { code: 'timeout', message: '任务超过所设时限。检查日志后可重新发送，或在设置里延长时限。', messages: { zh: '任务超过所设时限。检查日志后可重新发送，或在设置里延长时限。', en: 'The task ran past its time limit. Check the log and send again, or allow more time in the settings.' } };
+  if (spawnError) return { code: 'launch-failed', message: '进程未能启动。检查可执行路径、Node 环境和文件权限。', messages: { zh: '进程未能启动。检查可执行路径、Node 环境和文件权限。', en: 'The process did not start. Check the executable path, the Node environment and file permissions.' } };
+  if (/not logged|not authenticated|authentication required|login required|please (?:log|sign) in|401|unauthorized/i.test(output)) return { code: 'login-required', message: 'CLI 尚未登录。点击“打开终端登录”，完成后重新检测。桌面应用的登录不会自动等同于 CLI 登录。', messages: { zh: 'CLI 尚未登录。点击“打开终端登录”，完成后重新检测。桌面应用的登录不会自动等同于 CLI 登录。', en: 'The CLI is not signed in. Click \"Open sign-in terminal\", then detect again. Signing in to a desktop app does not sign in its CLI.' } };
   if (code === 0) return null;
-  if (/unknown (?:argument|option)|unrecognized (?:argument|option)|unexpected argument|invalid (?:option|choice)/i.test(output)) return { code: 'arguments', message: '此 CLI 版本不接受启动参数。重新检测版本，或在 AI 工具设置里覆盖参数。' };
-  if (/ENOTFOUND|ECONN|ETIMEDOUT|fetch failed|network|proxy|certificate|TLS/i.test(output)) return { code: 'network', message: '连接服务失败。检查此终端的网络、代理和证书设置后重试。' };
-  if (/quota|rate.limit|429|insufficient|billing/i.test(output)) return { code: 'quota', message: '服务端额度或限流问题。检查 CLI 账号的额度与模型权限。' };
-  if (/permission denied|EACCES|EPERM|workspace.*trust|untrusted/i.test(output)) return { code: 'permission', message: 'CLI 或目录权限受限。请在终端中完成工作区信任或修正目录权限。' };
-  return code === 0 ? null : { code: 'cli-exit', message: 'CLI 异常退出。展开日志查看具体原因，然后重新发送。' };
+  if (/unknown (?:argument|option)|unrecognized (?:argument|option)|unexpected argument|invalid (?:option|choice)/i.test(output)) return { code: 'arguments', message: '此 CLI 版本不接受启动参数。重新检测版本，或在 AI 工具设置里覆盖参数。', messages: { zh: '此 CLI 版本不接受启动参数。重新检测版本，或在 AI 工具设置里覆盖参数。', en: 'This CLI version does not accept these start arguments. Detect again, or override the arguments under AI tools.' } };
+  if (/ENOTFOUND|ECONN|ETIMEDOUT|fetch failed|network|proxy|certificate|TLS/i.test(output)) return { code: 'network', message: '连接服务失败。检查此终端的网络、代理和证书设置后重试。', messages: { zh: '连接服务失败。检查此终端的网络、代理和证书设置后重试。', en: 'Could not reach the service. Check this terminal\'s network, proxy and certificate settings, then try again.' } };
+  if (/quota|rate.limit|429|insufficient|billing/i.test(output)) return { code: 'quota', message: '服务端额度或限流问题。检查 CLI 账号的额度与模型权限。', messages: { zh: '服务端额度或限流问题。检查 CLI 账号的额度与模型权限。', en: 'The service refused for quota or rate limits. Check the CLI account\'s quota and model access.' } };
+  if (/permission denied|EACCES|EPERM|workspace.*trust|untrusted/i.test(output)) return { code: 'permission', message: 'CLI 或目录权限受限。请在终端中完成工作区信任或修正目录权限。', messages: { zh: 'CLI 或目录权限受限。请在终端中完成工作区信任或修正目录权限。', en: 'The CLI or the folder lacks permissions. Trust the workspace in a terminal or fix the folder permissions.' } };
+  return code === 0 ? null : { code: 'cli-exit', message: 'CLI 异常退出。展开日志查看具体原因，然后重新发送。', messages: { zh: 'CLI 异常退出。展开日志查看具体原因，然后重新发送。', en: 'The CLI stopped with an error. Open the log to see why, then send again.' } };
 }
 
 function readableOutput(output) {
@@ -312,14 +338,25 @@ function readableOutput(output) {
 }
 
 function responseReady(output) {
-  return readableOutput(output).replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/).some((line) => line.trim() === 'STETWISE_READY');
+  const ready = (text) => text.replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/).some((line) => line.trim() === 'STETWISE_READY');
+  if (ready(readableOutput(output))) return true;
+  // A streamed answer arrives in pieces (Gemini's stream-json sends "STETWISE_" and then
+  // "READY" as separate assistant messages). Join the assistant's pieces; the prompt, which
+  // also contains the word, is a user message and stays out.
+  let answer = '';
+  for (const line of output.split(/\r?\n/)) {
+    try { const event = JSON.parse(line); if (event.type === 'message' && event.role === 'assistant' && typeof event.content === 'string') answer += event.content; } catch { /* not an event */ }
+  }
+  return ready(answer);
 }
 
 function connectionResult(result) {
   const output = (result.stdout || '') + '\n' + (result.stderr || '');
-  if (result.ok && !result.timedOut && responseReady(output)) return { ok: true, message: '服务已返回连接测试响应', checkedAt: Date.now() };
+  if (result.ok && !result.timedOut && responseReady(output)) return { ok: true, message: '服务已返回连接测试响应', messages: { zh: '服务已返回连接测试响应', en: 'The service answered the connection test.' }, checkedAt: Date.now() };
   const diagnostic = diagnose(output, { timedOut: Boolean(result.timedOut), code: 1 });
-  return { ok: false, ...diagnostic, message: diagnostic?.message || '未收到测试响应', checkedAt: Date.now() };
+  // What the CLI said, so a refusal from the service (not one of the known causes) can be read.
+  const said = readableOutput(output).split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !/^\{/.test(line)).slice(-2).join(' ').slice(0, 240);
+  return { ok: false, ...diagnostic, message: diagnostic?.message || '未收到测试响应', messages: diagnostic?.messages || { zh: '未收到测试响应' + (said ? '。CLI 输出：' + said : ''), en: 'No answer to the connection test' + (said ? '. The CLI said: ' + said : '.') }, checkedAt: Date.now() };
 }
 
 function quoteWindows(value) {
@@ -379,7 +416,7 @@ class AgentRunner {
       const detected = (await detect(overrides)).find((item) => item.id === adapterId);
       if (!detected?.available) throw new Error(adapter.name + ' 未能运行。请在设置中检查路径并重新检测。');
       if (!detected.compatibility.ok) throw new Error(detected.compatibility.message);
-      if (detected.auth === 'required') throw Object.assign(new Error(adapter.name + ' 尚未登录。请先打开终端登录，然后重新检测。'), { code: 'login-required' });
+      if (detected.auth === 'required') throw Object.assign(new Error(adapter.name + ' 尚未登录。请先打开终端登录，然后重新检测。 / ' + adapter.name + ' is not signed in. Open the sign-in terminal, then detect again.'), { code: 'login-required' });
       executable = detected.path;
       args = splitTemplate(overrides[adapter.id]?.args || detected.args);
     }
@@ -498,4 +535,4 @@ async function runCommand(executable, args, { timeout = 20000, cwd } = {}) {
   });
 }
 
-module.exports = { bundledClaudeCode, runCommand, which, AgentRunner, detect, diagnose, readableOutput, responseReady, connectionResult, compatibleArgs, validateArgs, helpFlags, connectionArgs, parseEnvironment, redactOutput, openInIde, CLI_ADAPTERS, IDE_ADAPTERS, SHORT_PROMPT, splitTemplate, launch };
+module.exports = { codexOwnProvider, bundledClaudeCode, runCommand, which, AgentRunner, detect, diagnose, readableOutput, responseReady, connectionResult, compatibleArgs, validateArgs, helpFlags, connectionArgs, parseEnvironment, redactOutput, openInIde, CLI_ADAPTERS, IDE_ADAPTERS, SHORT_PROMPT, splitTemplate, launch };

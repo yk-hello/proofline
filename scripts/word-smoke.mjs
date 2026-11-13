@@ -21,7 +21,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
   const page = await context.newPage();
   page.on('pageerror', (error) => errors.push(error.message));
-  for (let attempt = 0; ; attempt++) { try { await page.goto(`http://127.0.0.1:${port}/`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); } }
+  for (let attempt = 0; ; attempt++) { try { await page.goto(`http://127.0.0.1:${port}/?lang=zh`); break; } catch (error) { if (attempt > 40) throw error; await new Promise((resolve) => setTimeout(resolve, 250)); } }
   await page.waitForFunction(() => window.stetwiseReader?.getState().document.ready);
   const bytes = [...await readFile(fixture)];
   await page.evaluate(async (data) => { await window.stetwiseReader.openFile({ file: new File([new Uint8Array(data)], 'word-charts.docx') }); }, bytes);

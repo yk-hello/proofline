@@ -1,9 +1,21 @@
 import DOMPurify from 'dompurify';
 let library, sequence = 0;
 let queue = Promise.resolve();
-export function renderMermaidSvg(source) {
+// Drawing a diagram blocks the page for a moment. In the reader that work waits for a pause
+// in scrolling, so a long document with many diagrams still scrolls smoothly.
+let lastScroll = -Infinity;
+if (typeof document !== 'undefined') document.addEventListener('scroll', () => { lastScroll = performance.now(); }, { capture: true, passive: true });
+async function scrollPause(limit = 2500) {
+  const started = performance.now();
+  while (performance.now() - lastScroll < 150 && performance.now() - started < limit) await new Promise((resolve) => setTimeout(resolve, 50));
+}
+export class DiagramSkipped extends Error { name = 'DiagramSkipped'; }
+/** `wanted` is asked when the diagram's turn comes: a diagram that scrolled away is not drawn. */
+export function renderMermaidSvg(source, { wanted, waitForScroll = false } = {}) {
   const task = queue.catch(() => {}).then(async () => {
     if (source.length > 8000) throw new Error('Diagram exceeds the rendering limit');
+    if (waitForScroll) await scrollPause();
+    if (wanted && !wanted()) throw new DiagramSkipped('Diagram is no longer on screen');
     library ||= import('mermaid').then(({ default: mermaid }) => {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', look: 'classic', htmlLabels: false, maxTextSize: 8000,
         flowchart: { htmlLabels: false }, themeVariables: { fontFamily: 'Noto Sans SC Variable, sans-serif', fontSize: '13px',

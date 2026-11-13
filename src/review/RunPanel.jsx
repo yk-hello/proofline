@@ -27,7 +27,7 @@ export default function RunPanel({ language, run, onStop, onDismiss, onRetry, on
         : <span>{zh ? `已改动 ${run.progress.changed} 处` : `${run.progress.changed} change${run.progress.changed === 1 ? '' : 's'} so far`}</span>}
       {run.progress.changed > 0 && <button onClick={onPreview}>{zh ? '预览当前结果' : 'Preview progress'}</button>}
     </div>}
-    {run.diagnostic && <p role="alert" className="run-diagnostic">{run.diagnostic.message}</p>}
+    {run.diagnostic && <p role="alert" className="run-diagnostic">{run.diagnostic.messages?.[zh ? 'zh' : 'en'] || run.diagnostic.message}</p>}
     {run.storageError && <p role="alert" className="settings-error">{run.storageError}</p>}
     {!active && <div className="run-actions">{run.diagnostic?.code === 'login-required' && onLogin && <button className="primary-button" onClick={onLogin}>{zh ? '打开终端登录' : 'Open sign-in terminal'}</button>}<button onClick={onRetry}>{t(language, 'resend')}</button>{typeof run.proposed === 'string' && run.hasChanges !== false && <button onClick={onReview}>{zh ? '审阅已有结果' : 'Review available result'}</button>}<button onClick={onSettings}>{zh ? '检查连接与设置' : 'Connection settings'}</button><button onClick={onDiagnose}>{zh ? '生成 CLI 诊断任务' : 'Create CLI diagnosis task'}</button></div>}
     {open && <pre ref={log} className="run-log">{run.output || t(language, 'noOutput')}{run.code !== undefined && run.code !== null ? `\n${t(language, 'exitCode', run.code)}` : ''}</pre>}

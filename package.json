@@ -35,6 +35,7 @@
     "test:integration": "node scripts/agents-storage.test.mjs",
     "test:adapters": "node scripts/cli-adapters.test.mjs",
     "test:review-desktop": "node scripts/review-desktop.test.mjs",
+    "test:review-cli": "node scripts/review-cli.test.mjs",
     "test:mac-contracts": "node scripts/mac-contracts.test.mjs",
     "test:mac-host": "node scripts/mac-verify.mjs",
     "test:probe": "node scripts/cli-probe.test.mjs",
@@ -64,6 +65,12 @@
       ],
       "signAndEditExecutable": false,
       "icon": "build/icon.ico",
+      "extraFiles": [
+        {
+          "from": "build/stetwise-review.cmd",
+          "to": "stetwise-review.cmd"
+        }
+      ],
       "artifactName": "Stetwise-${version}-Windows-${arch}.${ext}"
     },
     "portable": {
@@ -88,14 +95,21 @@
       "artifactName": "Stetwise-${version}-Setup-${arch}.${ext}"
     },
     "asarUnpack": [
-      "electron/review-core.mjs"
+      "electron/review-core.mjs",
+      "electron/review-cli.cjs"
     ],
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon-mac.png",
+      "extraResources": [
+        {
+          "from": "build/stetwise-review",
+          "to": "stetwise-review"
+        }
+      ],
       "category": "public.app-category.productivity",
       "artifactName": "Stetwise-${version}-mac-${arch}.${ext}",
       "identity": null,

@@ -127,7 +127,40 @@ async function lifecycle({ timeoutMinutes, cancelOnWaiting }) {
   return {status:cancelOnWaiting?'cancelled-after-60s-silence':'timeout-at-1m', originalUnchanged:true};
 }
 console.log(JSON.stringify({phase:'adapter-contracts-passed',matrix,root}));
+// Codex with a model provider of its own (a gateway or proxy in config.toml) does not use
+// `codex login`: it must not be taken for "not signed in" and blocked.
+{
+  const { codexOwnProvider } = require('../electron/agents.cjs');
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const os = await import('node:os');
+  const home = await mkdtemp(path.join(os.tmpdir(), 'codex-home-'));
+  const own = async (toml) => { await writeFile(path.join(home, 'config.toml'), toml); return codexOwnProvider({ CODEX_HOME: home }); };
+  const lines = (...rows) => rows.join('\n') + '\n';
+  assert.equal(await own(lines('model_provider = "custom"', '', '[model_providers.custom]', 'base_url = "https://example.test/v1"', 'requires_openai_auth = false')), true);
+  assert.equal(await own(lines('model_provider = "my-proxy"', '', '[model_providers."my-proxy"]', 'base_url = "x"')), true);
+  assert.equal(await own(lines('model_provider = "custom"', '', '[model_providers.custom]', 'requires_openai_auth = true')), false, 'a provider that asks for the OpenAI sign-in still needs codex login');
+  assert.equal(await own(lines('model_provider = "openai"')), false);
+  assert.equal(await own(lines('model = "gpt"')), false);
+  assert.equal(await own(lines('[profiles.x]', 'model_provider = "custom"')), false, 'only the top-level provider counts');
+  await rm(home, { recursive: true, force: true });
+}
+// A provider without the model the CLI asks for: said plainly, also when the CLI ran out of time retrying.
+{
+  const said = '[API Error: {"error":{"code":"model_not_found","message":"No available channel for model gemini-4-argon"}}]';
+  assert.equal(diagnose(said, { code: 1 }).code, 'model');
+  assert.equal(diagnose(said, { timedOut: true }).code, 'model');
+  assert.match(diagnose(said, { code: 1 }).messages.en, /model/);
+  assert.equal(diagnose('fetch failed ECONNRESET', { code: 1 }).code, 'network');
+}
+// A streamed answer in pieces is still an answer; the prompt alone (a user message) is not.
+{
+  const ev = (o) => JSON.stringify(o);
+  const prompt = ev({ type: 'message', role: 'user', content: 'Reply with exactly STETWISE_READY.' });
+  const lines = (...events) => events.join(String.fromCharCode(10));
+  assert.equal(responseReady(lines(prompt, ev({ type: 'message', role: 'assistant', content: 'STETWISE_', delta: true }), ev({ type: 'message', role: 'assistant', content: 'READY', delta: true }))), true);
+  assert.equal(responseReady(lines(prompt, ev({ type: 'result', status: 'error' }))), false);
+}
 const lifecycleResults = await Promise.all([lifecycle({timeoutMinutes:2,cancelOnWaiting:true}),lifecycle({timeoutMinutes:1})]);
-const report = {ok:true,evidence:'simulated programs; no vendor services called',matrix,lifecycle:lifecycleResults,checks:['exact-flags','no-prompt-echo-success','credentials-redaction','startup-lock','missing-launcher','missing-storage-migration','login-network-quota-permission-errors'],root};
+const report = {ok:true,evidence:'simulated programs; no vendor services called',matrix,lifecycle:lifecycleResults,checks:['codex-own-provider','exact-flags','no-prompt-echo-success','credentials-redaction','startup-lock','missing-launcher','missing-storage-migration','login-network-quota-permission-errors'],root};
 await writeFile(path.join(root,'report.json'),JSON.stringify(report,null,2));
 console.log(JSON.stringify(report));

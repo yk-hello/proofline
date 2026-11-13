@@ -12,3 +12,7 @@
 test-fixtures/** -text
 *.bat  text eol=crlf
 *.ps1  text eol=crlf
+# The stetwise-review launchers: a shell script for macOS (LF) and a batch file for Windows (CRLF).
+build/stetwise-review      text eol=lf
+build/stetwise-review.cmd  text eol=crlf
+*.cmd  text eol=crlf

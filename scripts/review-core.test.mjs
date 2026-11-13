@@ -203,3 +203,76 @@ console.log('redline-core ok');
   assert.equal(hiddenContent('<!-- proofline:chart type=bar -->\n<!-- stetwise:chart type=bar -->\n').length, 0);
   console.log('old names still read ok');
 }
+
+// A deletion is tidied here, whether or not the AI tidied around it.
+{
+  const { anchorDocument, resolveAnchors, buildTasks: tasksOf, buildPrompt: promptOf, joinAfterDeletion } = await import('../electron/review-core.mjs');
+  const remove = (doc, quote, edit = (text) => text) => {
+    const tasks = tasksOf(doc, [{ id: 'a', type: 'delete', status: 'open', note: '', anchor: { text: quote } }]);
+    const plan = anchorDocument(doc, tasks);
+    return resolveAnchors(doc, plan, edit(plan.text.replace(`[[SW-1]]${quote}[[/SW-1]]`, '[[SW-1]][[/SW-1]]')));
+  };
+  // A sentence in the middle, at the end and at the start of a paragraph.
+  assert.equal(remove('Runs 48 hours. No issues expected. Then we ship.\n', 'No issues expected.').scoped, 'Runs 48 hours. Then we ship.\n');
+  assert.equal(remove('Runs 48 hours. No issues expected.\n\nNext.\n', 'No issues expected.').scoped, 'Runs 48 hours.\n\nNext.\n');
+  assert.equal(remove('No issues expected. Then we ship.\n', 'No issues expected.').scoped, 'Then we ship.\n');
+  // A word before punctuation; Chinese text has no spaces to close.
+  assert.equal(remove('It is fast, really, and small.\n', 'really').scoped, 'It is fast,, and small.\n');
+  assert.equal(remove('It is very fast.\n', 'very fast').scoped, 'It is.\n');
+  assert.equal(remove('营收增长 18%，主要来自华东。团队扩大。\n', '主要来自华东。').scoped, '营收增长 18%，团队扩大。\n');
+  // A whole paragraph, list item and heading: the emptied line goes, one blank line stays.
+  assert.equal(remove('# A\n\nFirst.\n\nSecond.\n\nThird.\n', 'Second.').scoped, '# A\n\nFirst.\n\nThird.\n');
+  assert.equal(remove('- one\n- two\n- three\n', 'two').scoped, '- one\n- three\n');
+  assert.equal(remove('1. one\n2. [ ] two\n', '[ ] two').scoped, '1. one\n');
+  assert.equal(remove('Intro.\n\n## Risks\n\nBody.\n', 'Risks').scoped, 'Intro.\n\nBody.\n');
+  assert.equal(remove('Only paragraph.\n', 'Only paragraph.').scoped, '');
+  assert.equal(remove('First.\n\nLast.', 'Last.').scoped, 'First.\n\n');
+  // The AI closing the gap itself is not reported as a change outside the selection, and gives the same text.
+  const tidied = remove('Runs 48 hours. No issues expected. Then we ship.\n', 'No issues expected.', (text) => text.replace('. [[SW-1]]', '.[[SW-1]]'));
+  assert.equal(tidied.scoped, 'Runs 48 hours. Then we ship.\n');
+  assert.deepEqual(tidied.outside, []);
+  // A real change outside the selection still is.
+  const greedy = remove('Runs 48 hours. No issues expected. Then we ship.\n', 'No issues expected.', (text) => text.replace('48 hours', '72 hours'));
+  assert.equal(greedy.scoped, 'Runs 48 hours. Then we ship.\n');
+  assert.equal(greedy.outside.length, 1);
+  // A table cell keeps its pipes.
+  assert.equal(remove('| a | b | c |\n| - | - | - |\n| 1 | two | 3 |\n', 'two').scoped, '| a | b | c |\n| - | - | - |\n| 1 | | 3 |\n');
+  assert.deepEqual(joinAfterDeletion('a ', ' b'), ['a ', 'b']);
+
+  // The task no longer contradicts itself about deletions, and says what was missing.
+  const doc = 'Sales rose. We expect no issues.\n';
+  const tasks = tasksOf(doc, [{ id: 'a', type: 'delete', status: 'open', note: '', anchor: { text: 'We expect no issues.' } }, { id: 'b', type: 'fix', status: 'open', note: '', anchor: { text: 'Sales rose.' } }]);
+  for (const language of ['en', 'zh']) {
+    const task = promptOf({ mode: 'agent', language, name: 'a.md', file: 'a.md', source: doc, tasks, scope: 'file', anchors: anchorDocument(doc, tasks) });
+    assert.ok(!/delete the paragraph|删除该段/.test(task), 'anchored tasks never tell the AI to remove anchors with a paragraph');
+    assert.ok(!/end of the file upward|从文件末尾往前/.test(task));
+    assert.match(task, language === 'en' ? /Do not invent facts/ : /不要编造事实/);
+    assert.match(task, language === 'en' ? /language of the passage it replaces/ : /被替换那段原文的语言/);
+    assert.match(task, language === 'en' ? /No instruction was given/ : /用户没有写要求/);
+    assert.ok(!task.includes('[[SW-1]]6[[/SW-1]]'), 'the example does not reuse a real anchor number');
+  }
+  // Without anchors (folder scope) the paragraph-level wording stays.
+  assert.match(promptOf({ mode: 'agent', language: 'en', name: 'a.md', file: 'a.md', source: doc, tasks, scope: 'folder', anchors: null }), /delete the paragraph/);
+  console.log('deletions tidied, task rules ok');
+}
+
+// The last round goes into the next task, for AIs that remember nothing between runs.
+{
+  const { diffBlocks, roundRecord, buildTasks: tasksOf, buildPrompt: promptOf } = await import('../electron/review-core.mjs');
+  const base = '# T\n\nSales rose 18% this quarter.\n\nWe expect no issues.\n\nThe team grew.\n';
+  const next = '# T\n\nSales rose 21% this quarter.\n\nWe expect some delays in March.\n\nThe team grew.\n';
+  const tasks = tasksOf(base, [{ id: 'a', type: 'fix', status: 'open', note: 'Use the audited figure', anchor: { text: '18%' } }, { id: 'b', type: 'fix', status: 'open', note: 'Be honest about risk', anchor: { text: 'We expect no issues.' } }]);
+  const diff = diffBlocks(base, next), changes = diff.hunks.filter((hunk) => hunk.type === 'change');
+  const record = roundRecord(diff, { [changes[1].id]: 'reject' }, tasks, { [changes[1].id]: 'Do not invent a month' });
+  assert.deepEqual(record.map((entry) => [entry.instruction, entry.kept, entry.note]), [['Use the audited figure', true, ''], ['Be honest about risk', false, 'Do not invent a month']]);
+  assert.match(record[0].before, /18%/); assert.match(record[0].after, /21%/);
+  for (const language of ['en', 'zh']) {
+    const task = promptOf({ mode: 'agent', language, name: 'a.md', file: 'a.md', source: base, tasks, scope: 'folder', previous: record });
+    assert.match(task, language === 'en' ? /The last round on this document/ : /上一轮的情况/);
+    assert.match(task, language === 'en' ? /the user put the original back, and wrote: Do not invent a month/ : /用户改回了原文，并说明：Do not invent a month/);
+    assert.ok(task.indexOf(language === 'en' ? 'The last round' : '上一轮的情况') < task.indexOf(language === 'en' ? '## Notes (' : '## 批注（'), 'context comes before the notes');
+    assert.ok(!promptOf({ mode: 'agent', language, name: 'a.md', file: 'a.md', source: base, tasks, scope: 'folder' }).includes(language === 'en' ? 'The last round' : '上一轮的情况'), 'no section without a record');
+  }
+  assert.match(promptOf({ mode: 'terminal', language: 'en', name: 'a.md', file: 'C:/x/a.md', source: base, tasks, previous: record }), /The last round on this document/);
+  console.log('last round in the next task ok');
+}

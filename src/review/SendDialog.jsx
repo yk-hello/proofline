@@ -5,7 +5,7 @@ import { customAgents, readAgentSettings, writeAgentSettings } from './agents';
 
 const GROUP_ICONS = { cli: Terminal, custom: Wrench };
 
-export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings, onSaveAs = null, hidden = [] }) {
+export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings, onSaveAs = null, hidden = [], quick = false, mixedScope = false }) {
   const [settings, setSettings] = useState(readAgentSettings);
   const [detected, setDetected] = useState(null);
   const [selected, setSelected] = useState(settings.lastAgent);
@@ -36,13 +36,28 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
 
   const all = groups.flatMap((group) => group.items);
   // Tools that were looked for but not found stay visible, so a missing one can be fixed here.
-  const missing = (detected || []).filter((item) => item.kind === 'cli' && !item.available);
+  // Shown by name, the first six only: the ones a reader of this language is most likely to use come first.
+  const LIKELY = language === 'zh'
+    ? ['claude-code', 'codex', 'gemini', 'qwen', 'kimi', 'iflow', 'codebuddy', 'qoder-cli', 'cursor-agent', 'copilot', 'opencode', 'aider']
+    : ['claude-code', 'codex', 'gemini', 'cursor-agent', 'copilot', 'opencode', 'aider', 'qwen', 'kimi', 'iflow', 'codebuddy', 'qoder-cli'];
+  const rank = (item) => { const at = LIKELY.indexOf(item.id); return at < 0 ? LIKELY.length : at; };
+  const missing = (detected || []).filter((item) => item.kind === 'cli' && !item.available).sort((a, b) => rank(a) - rank(b));
   const agent = all.find((item) => item.id === selected && item.available) || null;
   useEffect(() => {
     if (agent || !detected) return;
     const first = all.find((item) => item.available && (item.kind === 'cli' || item.kind === 'custom'));
     if (first) setSelected(first.id);
   }, [detected]);
+
+  // Quick send: with the AI and scope used last time, and nothing here the user should read
+  // first, the run starts without the dialog. Anything else shows the dialog as usual.
+  const [quickPending, setQuickPending] = useState(() => Boolean(quick && settings.lastAgent && settings.lastAgent !== 'manual' && canRunLocal && !hidden.length && !mixedScope));
+  useEffect(() => {
+    if (!quickPending || !detected) return;
+    const remembered = all.find((item) => item.id === settings.lastAgent && item.available && ['cli', 'custom'].includes(item.kind));
+    if (remembered && remembered.auth !== 'required' && remembered.compatibility?.ok !== false) onStart({ agent: remembered, scope: settings.lastScope || 'file', note: '', quick: true });
+    else setQuickPending(false);
+  }, [quickPending, detected]);
 
   const localKind = agent && ['cli', 'custom'].includes(agent.kind);
   const blocked = !agent || (localKind && !canRunLocal) || agent.auth === 'required' || agent.compatibility?.ok === false;
@@ -54,6 +69,12 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
       setSettings(next); onStart({ agent, scope: localKind ? scope : 'file', note });
     } catch (error) { setError(error.message); }
   }
+
+  if (quickPending) return <div className="send-quick" role="status" aria-live="polite">
+    <span>{language === 'zh' ? '正在交给上次用的 AI…' : 'Sending to the AI you used last time…'}</span>
+    <button onClick={() => setQuickPending(false)}>{t(language, 'sendOptions')}</button>
+    <button onClick={onClose}>{t(language, 'cancel')}</button>
+  </div>;
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div ref={dialogRef} tabIndex={-1} className="send-dialog" role="dialog" aria-modal="true" aria-labelledby="send-title" onKeyDown={(event) => {
@@ -94,7 +115,7 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
       </div>
       {agent?.auth === 'required' && <div className="agent-note" role="alert"><p>{language === 'zh' ? 'CLI 尚未登录。桌面应用的登录不能代替 CLI 登录，完成后点重新检测。' : 'The CLI is not signed in. Desktop sign-in does not replace CLI sign-in. Detect again after logging in.'}</p><button onClick={() => void bridge.login(agent.id, settings.overrides).catch((error) => setError(error.message))}>{language === 'zh' ? '打开终端登录' : 'Open sign-in terminal'}</button></div>}
       {error && <p className="settings-error" role="alert">{error}</p>}
-      {agent?.compatibility?.ok === false && <p className="settings-error" role="alert">{agent.compatibility.message}</p>}
+      {agent?.compatibility?.ok === false && <p className="settings-error" role="alert">{agent.compatibility.messages?.[language === 'zh' ? 'zh' : 'en'] || agent.compatibility.message}</p>}
       {localKind && <fieldset className="scope-picker">
         <legend>{t(language, 'scope')}</legend>
         {['file', 'folder'].map((value) => <label key={value} className={scope === value ? 'selected' : ''}>
@@ -102,6 +123,10 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
           <span><strong>{t(language, value === 'file' ? 'scopeFile' : 'scopeFolder')}</strong><small>{t(language, value === 'file' ? 'scopeFileHint' : 'scopeFolderHint')}</small></span>
         </label>)}
       </fieldset>}
+      {mixedScope && <div className="send-hidden" role="note">
+        <strong>{language === 'zh' ? '这一轮里有一条全文指令' : 'This round includes a whole-document instruction'}</strong>
+        <p>{language === 'zh' ? '全文指令可以改文档的任何地方，所以这一轮不会把「选区之外的改动」单独排除，每处改动都会列出来让你审。想让其他指令只动选中的字，请把全文指令单独发一次。' : 'It may change any part of the document, so changes outside your selections are not set aside this round; every change is still listed for review. To keep the other instructions to exactly what you selected, send the whole-document one on its own.'}</p>
+      </div>}
       {hidden.length > 0 && <div className="send-hidden" role="alert">
         <strong>{t(language, 'hiddenTitle', hidden.length)}</strong>
         <p>{t(language, 'hiddenHint')}</p>

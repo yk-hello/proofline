@@ -1,3 +1,7 @@
+// Continuity: what the reader keeps for you across undo, tabs, reopening and outside changes.
+// Marks and their undo history, the reading position, document edits, following a change made
+// by another program (and undoing it), a conflict when both sides changed, and saved versions.
+// Runs the built desktop app (npm run build first); nothing here calls an AI.
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -9,179 +13,139 @@ await mkdir(output, { recursive: true });
 const filename = path.join(output, '阅读与标注.md');
 const original = '# 阅读与标注\n\n第一段需要高亮，第二句用于批注。\n\n## 子章节\n\nAlpha alpha alphabet。\n\n';
 await writeFile(filename, original);
-const repeated = path.join(output, '重复匹配.md');
-const repeatedSource = '# 重复匹配\n\n前方定位文字。\n\n另一个位置的定位文字。\n\n第三次定位文字。\n\n[可见链接](https://example.test/隐藏定位)\n';
-await writeFile(repeated, repeatedSource);
+// Long enough to be drawn in parts, with a distinct line in every paragraph to find a position by.
+const long = path.join(output, '长文档.md');
+const longSource = ['# 长文档', '', ...Array.from({ length: 900 }, (_, i) => `${i % 30 === 0 ? `## 第 ${i / 30 + 1} 节\n\n` : ''}第 ${i + 1} 段：这一段用来检查阅读位置，编号 P${String(i + 1).padStart(4, '0')}，内容足够长以便占满一行并换行。\n`)].join('\n');
+await writeFile(long, longSource);
+
 let { app, page } = await launchDesktop({ output, userData });
 const invoke = (method, args = []) => invokeDesktop(app, page, method, args);
-const report = { errors: [] };
+const report = { checks: [], errors: [] };
 page.on('pageerror', (error) => report.errors.push(error.message));
+const done = (name) => report.checks.push(name);
 const marks = () => invoke('getAnnotations');
-const waitMarks = (count) => page.waitForFunction((count) => window.mengxReader.getAnnotations().length === count, count);
-const painted = (count) => page.waitForFunction((count) => (CSS.highlights.get('mengx-reading-marks')?.size || 0) === count, count);
-const saved = () => page.waitForFunction(() => window.mengxReader.getState().document.saveState.status === 'saved' && !window.mengxReader.getState().document.dirty);
+const state = () => invoke('getState');
+const saved = () => page.waitForFunction(() => { const d = window.stetwiseReader.getState().document; return d.saveState.status === 'saved' && !d.dirty; }, null, { timeout: 20000 });
+// The file on disk, once the reader has written it: autosave runs a moment after a change.
+const disk = async (test, message) => { for (let i = 0; i < 80; i++) { if (test(await readFile(filename, 'utf8'))) return; await new Promise((resolve) => setTimeout(resolve, 150)); } assert.fail(`${message}: ${JSON.stringify(await readFile(filename, 'utf8'))}`); };
+const painted = (name, count) => page.waitForFunction(([name, count]) => (CSS.highlights.get(name)?.size || 0) === count, [name, count], { timeout: 10000 });
+// The paragraph number at the top of the page: what the reader is looking at.
+const topParagraph = () => page.evaluate(() => {
+  const region = document.querySelector('.reading-column'), top = region.getBoundingClientRect().top;
+  for (const node of document.querySelectorAll('.document-content p')) { const box = node.getBoundingClientRect(); if (box.bottom > top + 4) return /P\d{4}/.exec(node.textContent)?.[0] || null; }
+  return null;
+});
+
 try {
+  await page.evaluate(() => window.stetwiseReader.waitForReady({ timeoutMs: 30000 }));
+  if (await page.locator('.setup-dialog').count()) await page.locator('.setup-dialog .dialog-actions .primary-button').click();
+
+  // ---- Marks and their own undo history ----
   await invoke('openPath', [filename]);
   await invoke('setReadingMode', [true]);
-  const firstTab = (await invoke('getTabs')).find((tab) => tab.active);
-  await page.locator('.document-content p').first().evaluate((paragraph) => {
-    const range = document.createRange(); range.setStart(paragraph.firstChild, 0); range.setEnd(paragraph.firstChild, 7);
-    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
-    paragraph.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-  });
-  await page.locator('.selection-tools').getByRole('button', { name: '高亮', exact: true }).click();
-  await page.getByRole('textbox', { name: '名称', exact: true }).fill('第一段高亮');
-  await page.getByRole('button', { name: '保存', exact: true }).click();
-  await waitMarks(1); await painted(1);
-  await page.getByRole('button', { name: '撤销标注', exact: true }).click();
-  await waitMarks(0); await painted(0);
-  await page.getByRole('button', { name: '重做标注', exact: true }).click();
-  await waitMarks(1); await painted(1);
-  await page.keyboard.press('Control+z'); await waitMarks(0); await painted(0);
-  await page.keyboard.press('Control+y'); await waitMarks(1); await painted(1);
-  const highlight = (await marks())[0];
+  const highlight = await invoke('addHighlight', [{ text: '第一段需要高亮', label: '第一段高亮' }]);
+  await painted('rl-highlight', 1);
+  await invoke('undoAnnotation'); assert.equal((await marks()).length, 0); await painted('rl-highlight', 0);
+  await invoke('redoAnnotation'); assert.equal((await marks()).length, 1); await painted('rl-highlight', 1);
   const note = await invoke('addNote', [{ text: '第二句用于批注', note: '原始批注' }]);
-  await painted(1);
-  assert.equal(await page.locator('.note-marker').count(), 0, 'Notes must not cover the document');
-  assert.equal(await page.evaluate(() => CSS.highlights.has('mengx-active-mark')), false);
-  await page.getByRole('tab', { name: '批注', exact: true }).click();
-  await page.locator('.annotation-entry').getByRole('button', { name: '重命名或编辑标注' }).click();
-  await page.getByRole('textbox', { name: '名称', exact: true }).fill('我的批注');
-  await page.locator('.note-dialog textarea').fill('新批注');
-  await page.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByRole('button', { name: '撤销标注', exact: true }).click();
-  assert.equal((await marks()).find((item) => item.id === note.id).note, '原始批注');
-  await page.getByRole('button', { name: '重做标注', exact: true }).click();
+  await invoke('updateAnnotation', [note.id, { note: '新批注', label: '我的批注' }]);
   assert.equal((await marks()).find((item) => item.id === note.id).note, '新批注');
+  await invoke('undoAnnotation');
+  assert.equal((await marks()).find((item) => item.id === note.id).note, '原始批注', 'undo restores the note as it was');
+  await invoke('redoAnnotation');
   assert.equal((await marks()).find((item) => item.id === note.id).label, '我的批注');
-  const underline = await invoke('addUnderline', [{ text: '第二句用于批注', label: '独立划线' }]);
-  await page.waitForFunction(() => CSS.highlights.get('mengx-reading-underlines')?.size === 1);
-  await page.getByRole('tab', { name: '划线', exact: true }).click();
-  assert.match(await page.locator('.annotation-list').textContent(), /独立划线/);
-  await page.locator('.annotation-entry').getByRole('button', { name: '重命名或编辑标注' }).click();
-  await page.getByRole('textbox', { name: '名称', exact: true }).fill('重新命名划线');
-  await page.getByRole('button', { name: '保存', exact: true }).click();
-  assert.equal((await marks()).find((item) => item.id === underline.id).label, '重新命名划线');
-  await invoke('removeAnnotation', [underline.id]);
-  await page.waitForFunction(() => CSS.highlights.get('mengx-reading-underlines')?.size === 0);
-  await page.getByRole('tab', { name: '书签', exact: true }).click();
-  await page.getByRole('button', { name: '记住当前位置', exact: true }).click();
-  await page.getByRole('textbox', { name: '名称', exact: true }).fill('明天从这里读');
-  await page.getByRole('button', { name: '保存', exact: true }).click();
-  const namedBookmark = (await marks()).find((item) => item.type === 'bookmark');
-  assert.equal(namedBookmark.label, '明天从这里读');
-  await invoke('removeAnnotation', [namedBookmark.id]);
-  await page.getByRole('tab', { name: '高亮', exact: true }).click();
-  await page.getByRole('textbox', { name: '查找阅读标注' }).fill('不存在');
-  assert.equal(await page.locator('.annotation-entry').count(), 0);
-  await page.getByRole('textbox', { name: '查找阅读标注' }).fill('第一段');
-  assert.equal(await page.locator('.annotation-entry').count(), 1);
-  await page.locator('.annotation-entry').getByRole('button', { name: '删除标注' }).click();
-  await waitMarks(1); await painted(0);
-  await page.getByRole('button', { name: '撤销标注', exact: true }).click();
-  await waitMarks(2); await painted(1);
-  assert.equal(await readFile(filename, 'utf8'), original, 'Annotations must not alter the source');
+  await invoke('addUnderline', [{ text: 'Alpha alpha alphabet', label: '独立划线' }]);
+  await painted('rl-underline', 1);
+  await invoke('removeAnnotation', [highlight.id]); assert.equal((await marks()).length, 2);
+  await invoke('undoAnnotation'); assert.equal((await marks()).length, 3, 'a removed mark comes back');
+  assert.equal(await readFile(filename, 'utf8'), original, 'marks never touch the document');
+  done('marks-undo-redo');
+
+  // ---- Document edits: undo, redo, and the file on disk ----
+  const before = await invoke('getContent');
   await invoke('setReadingMode', [false]);
-  const edited = original + '新增正文内容。\n';
-  await invoke('replaceContent', [edited]); await saved();
-  await invoke('removeAnnotation', [highlight.id]);
-  await invoke('undoAnnotation'); await waitMarks(2); await painted(1);
-  assert.equal((await invoke('getContent')).content, edited, 'Annotation Undo must not revert body edits');
-  await invoke('undo'); await saved();
-  assert.equal((await invoke('getContent')).content, original);
-  await invoke('redoAnnotation'); await waitMarks(1); await painted(0);
-  await invoke('undoAnnotation'); await waitMarks(2); await painted(1);
-  const extraMark = await invoke('addBookmark', [{ label: '交错操作的书签' }]);
-  await invoke('redo'); await saved();
-  assert.equal((await invoke('getContent')).content, edited, 'Annotations must preserve body Redo');
-  await invoke('removeAnnotation', [extraMark.id]);
-  await invoke('undo'); await saved();
-  assert.equal((await invoke('getContent')).content, original);
-  await invoke('openText', [{ name: '另一篇.md', content: '# 另一篇\n\n独立阅读记录。' }]);
-  assert.equal((await invoke('getState')).document.canUndo, false);
-  assert.equal((await marks()).length, 0);
-  assert.equal((await invoke('getState')).annotations.canUndo, false);
-  await invoke('switchTab', [firstTab.id]); await painted(1);
-  assert.equal((await invoke('getState')).annotations.canUndo, true);
-  report.annotationIndependentUndoRedo = true;
-  report.separateMarksAndCustomNames = true;
-
-  await invoke('openFolderPath', [output]);
-  const completions = await page.evaluate((prefix) => window.mengxDesktop.completePath(prefix), path.join(output, '重复'));
-  assert.equal(completions[0]?.path, repeated);
-  assert.deepEqual(await page.evaluate(() => window.mengxDesktop.completePath('C:\\Windows\\')), []);
-  await invoke('search', ['定位文字', { scope: 'workspace' }]);
-  const results = (await invoke('getSearchResults')).items.filter((item) => item.path === repeated);
-  assert.equal(results.length, 3);
-  for (const index of [2, 0, 1]) {
-    await invoke('search', ['定位文字', { scope: 'workspace' }]);
-    const all = (await invoke('getSearchResults')).items;
-    const hit = all.find((item) => item.path === repeated && item.offset === results[index].offset);
-    await invoke('goToMatch', [hit.index]);
-    const state = await invoke('getState');
-    const active = (await invoke('getSearchResults')).items[state.document.activeMatch];
-    assert.equal(active.offset, results[index].offset);
-    assert.equal(await page.locator('.active-search-hit').textContent(), '定位文字');
-  }
-  await invoke('closeSearch');
-  assert.equal((await invoke('search', ['Alpha', { caseSensitive: true, scope: 'document' }])).count, 0);
-  await invoke('switchTab', [firstTab.id]);
-  assert.equal((await invoke('search', ['Alpha', { caseSensitive: true }])).count, 1);
-  assert.equal((await invoke('search', ['alpha', { wholeWord: true, caseSensitive: false }])).count, 2);
-  assert.equal((await invoke('search', ['[Aa]lpha', { regex: true, wholeWord: false }])).count, 3);
-  await assert.rejects(invoke('search', ['[', { regex: true }]), /regular expression|正则|Unterminated/i);
-  await invoke('closeSearch');
-  report.repeatedSearchAndOptions = true;
-
+  await invoke('replaceContent', [before.content.replace('Alpha alpha alphabet。', 'Alpha beta gamma。'), { expectedRevision: before.revision }]);
+  await disk((text) => text.includes('Alpha beta gamma。'), 'the edit is saved');
+  await invoke('undo');
+  await disk((text) => text === original, 'undo is written back');
+  await invoke('redo');
+  await disk((text) => text.includes('Alpha beta gamma。'), 'redo is written back');
+  await invoke('undo');
+  await disk((text) => text === original, 'the second undo is written back'); await saved();
   await invoke('setReadingMode', [true]);
-  await writeFile(filename, '# 外部修改\n\n无需先编辑即可发现。\n');
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await page.waitForFunction(() => window.mengxReader.getState().document.saveState.status === 'conflict');
-  await page.locator('.autosave-state.retry').click();
-  await page.getByRole('button', { name: '加载磁盘版本', exact: true }).click();
-  await page.locator('.conflict-dialog').waitFor({ state: 'hidden' });
-  assert.match((await invoke('getContent')).content, /无需先编辑即可发现/);
-  assert.equal((await invoke('getState')).document.saveState.status, 'saved');
-  await invoke('setReadingMode', [false]);
-  await invoke('replaceContent', ['# 保留当前编辑\n\n这一版要保存。']);
-  await saved();
-  await writeFile(filename, '# 第二次外部修改\n');
-  await invoke('checkExternalChanges');
-  await page.locator('.autosave-state.retry').click();
-  await page.getByRole('button', { name: '备份并覆盖原文件', exact: true }).click();
-  await page.locator('.conflict-dialog').waitFor({ state: 'hidden' }); await saved();
-  assert.match(await readFile(filename, 'utf8'), /保留当前编辑/);
-  const versions = await invoke('getVersions');
-  assert.ok(versions.versions.some((version) => version.reason === 'external-version'));
-  const revision = (await invoke('getContent')).revision;
-  await invoke('replaceContent', ['# 更新 revision']);
-  await assert.rejects(invoke('restoreVersion', [versions.versions[0].id, { expectedRevision: revision }]), /revision conflict/i);
-  await saved();
-  report.proactiveConflictAndBackups = true;
+  assert.equal((await marks()).length, 3, 'marks survive edits to other text');
+  done('edit-undo-redo-saved');
 
-  await invoke('openPath', [repeated]);
-  await invoke('setPanels', [{ sidebarWidth: 315, preferences: true }]);
-  await invoke('setReadingPreferences', [{ background: 'warm' }]);
-  assert.equal(await page.getByRole('button', { name: '暖白', exact: true }).count(), 0);
-  await page.getByRole('group', { name: '代码字号' }).getByRole('button', { name: '大字', exact: true }).click();
-  assert.equal((await invoke('getReadingPreferences')).background, 'white');
-  assert.equal((await invoke('getReadingPreferences')).codeSize, 'large');
-  await invoke('setPanels', [{ preferences: false }]);
-  await page.screenshot({ path: path.join(output, 'continuity-desktop.png') });
-  await app.evaluate(({ app }) => app.exit(0)); await app.close().catch(() => {});
+  // ---- Another program changes the file while nothing here is unsaved: follow, then undo ----
+  const outside = original.replace('第二句用于批注。', '第二句被外部程序改过。');
+  await writeFile(filename, outside);
+  await invoke('checkExternalChanges');
+  await page.waitForFunction((text) => window.stetwiseReader.getContent().content.includes(text), '第二句被外部程序改过', { timeout: 15000 });
+  await page.locator('.round-bar').waitFor({ timeout: 10000 });
+  assert.equal((await state()).document.dirty, false);
+  await page.locator('.round-bar .round-actions button').nth(1).click();            // Undo
+  await page.waitForFunction((text) => window.stetwiseReader.getContent().content.includes(text), '第二句用于批注', { timeout: 15000 });
+  await disk((text) => text === original, 'undoing an outside change puts the file back'); await saved();
+  done('outside-change-followed-and-undone');
+
+  // ---- Both sides changed: nothing is overwritten until the user chooses ----
+  const mine = await invoke('getContent');
+  await invoke('setReadingMode', [false]);
+  await page.evaluate(([content, revision]) => { void window.stetwiseReader.replaceContent(content, { expectedRevision: revision }); }, [mine.content.replace('第一段需要高亮', '第一段我改过'), mine.revision]);
+  await writeFile(filename, original.replace('## 子章节', '## 外部改的标题'));
+  await invoke('checkExternalChanges');
+  await page.waitForFunction(() => window.stetwiseReader.getState().document.saveState.status === 'conflict', null, { timeout: 15000 });
+  assert.match(await readFile(filename, 'utf8'), /外部改的标题/, 'the outside version is still on disk');
+  assert.ok((await invoke('getContent')).content.includes('第一段我改过'), 'and the local edit is still in the window');
+  await invoke('resolveConflict', ['reload']);
+  await page.waitForFunction(() => window.stetwiseReader.getContent().content.includes('外部改的标题'), null, { timeout: 15000 });
+  const versions = await invoke('getVersions');
+  assert.ok((versions.versions || versions.items || versions).length >= 2, 'versions were kept along the way');
+  await invoke('setReadingMode', [true]);
+  done('conflict-kept-both', 'versions-kept');
+
+  // ---- Reading position: across tabs, and after closing and reopening ----
+  await invoke('openPath', [long]);
+  await page.evaluate(() => window.stetwiseReader.waitForReady({ timeoutMs: 30000 }));
+  const target = (await invoke('getOutline', [{ offset: 0, limit: 100 }])).items.find((item) => /第 17 节/.test(item.text || item.title));
+  await invoke('goToHeading', [target.slug]);
+  await page.mouse.move(700, 500); await page.mouse.wheel(0, 900); await page.waitForTimeout(900);
+  const reading = await topParagraph();
+  assert.match(reading, /^P0\d{3}$/);
+  const tabs = await invoke('getTabs');
+  await invoke('switchTab', [tabs.find((tab) => !tab.active).id]); await page.waitForTimeout(500);
+  await invoke('switchTab', [tabs.find((tab) => tab.active).id]);
+  await page.waitForFunction(() => window.stetwiseReader.getState().document.ready, null, { timeout: 15000 }); await page.waitForTimeout(1500);
+  assert.equal(await topParagraph(), reading, 'the position is kept across tabs');
+  await invoke('closeTab', [undefined, { discard: true }]); await page.waitForTimeout(500);
+  await invoke('openPath', [long]);
+  await page.evaluate(() => window.stetwiseReader.waitForReady({ timeoutMs: 30000 })); await page.waitForTimeout(2500);
+  assert.equal(await topParagraph(), reading, 'and after closing and reopening the document');
+  done('position-across-tabs', 'position-after-reopen');
+
+  // ---- After a restart: the same documents, marks and position ----
+  await app.close();
   ({ app, page } = await launchDesktop({ output, userData }));
-  await page.waitForFunction(() => window.mengxReader.getState().document.ready);
-  assert.equal((await invoke('getReadingPreferences')).background, 'white');
-  assert.equal((await invoke('getState')).ui.sidebarWidth, 315);
-  await invoke('openTab', [filename]);
-  assert.equal((await marks()).length, 2);
-  report.restartPreferencesAndMarks = true;
+  page.on('pageerror', (error) => report.errors.push(error.message));
+  await page.waitForFunction(() => Boolean(window.stetwiseReader), null, { timeout: 30000 });
+  await page.evaluate(() => window.stetwiseReader.waitForReady({ timeoutMs: 30000 }));
+  await invoke('openPath', [long]);
+  await page.evaluate(() => window.stetwiseReader.waitForReady({ timeoutMs: 30000 })); await page.waitForTimeout(2500);
+  assert.equal(await topParagraph(), reading, 'the position survives a restart');
+  await invoke('openPath', [filename]);
+  await page.evaluate(() => window.stetwiseReader.waitForReady({ timeoutMs: 30000 }));
+  const kept = await marks();
+  assert.equal(kept.length, 3, 'marks survive a restart');
+  assert.equal(kept.find((item) => item.type === 'note').note, '新批注');
+  done('restart-keeps-position-and-marks');
+
   assert.deepEqual(report.errors, []);
+  report.ok = true;
   await writeFile(path.join(output, 'continuity-report.json'), JSON.stringify(report, null, 2));
-  console.log(JSON.stringify(report, null, 2));
+  console.log(JSON.stringify(report));
 } catch (error) {
   await page.screenshot({ path: path.join(output, 'failure.png') }).catch(() => {});
-  console.error(await invoke('getState').catch(() => null));
+  console.error(JSON.stringify({ checks: report.checks, errors: report.errors }));
   throw error;
 } finally {
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {});

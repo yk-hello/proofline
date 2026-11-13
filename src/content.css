@@ -80,7 +80,7 @@
 .document-content table.pl-table-part :is(th, td) { min-width: 0; overflow-wrap: anywhere; }
 .document-content .large-document-chunk[data-index] > [data-edit-region] > table.pl-table-continued:first-child { margin-top: 0; }
 .document-content .large-document-chunk[data-index] > [data-edit-region][data-note] > table.pl-table-part { margin-top: 0; }
-.source-document { --reader-font: var(--mono), "Noto Sans SC Variable", monospace; }
+.source-document { --reader-font: var(--mono); }
 .reading-layout .source-document pre.source-plain-block { min-height: 24px; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--paper); color: var(--body); font-family: var(--reader-font); font-size: 14px; line-height: 25px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .large-document-loading { min-height: 300px; display: grid; place-content: center; color: var(--secondary); }
 .resource-error { display: block; padding: 10px 12px; border: 1px dashed var(--line); color: var(--secondary); background: var(--panel); font-size: 13px; overflow-wrap: anywhere; }

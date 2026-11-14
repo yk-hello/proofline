@@ -34,6 +34,10 @@ assert.equal(diagnose('Not logged in', { code: 1 }).code, 'login-required');
 assert.equal(diagnose('When using Gemini API, you must specify the GEMINI_API_KEY environment variable.', { code: 1 }).code, 'login-required');
 assert.equal(diagnose('unexpected argument --full-auto', { code: 2 }).code, 'arguments');
 assert.equal(readableOutput(JSON.stringify({type:'message',role:'user',content:'STETWISE_READY'})), '');
+// A plain answer that is also valid JSON is not mistaken for a CLI event and dropped.
+assert.equal(readableOutput('<<<ANSWER #2\n314159\n>>>'), '<<<ANSWER #2\n314159\n>>>');
+for (const plain of ['42', 'true', 'null', '"quoted"', '{"total": 3}', '[1, 2]']) assert.equal(readableOutput(plain), plain);
+assert.equal(readableOutput(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'314159'}})), '314159');
 assert.ok(!CLI_ADAPTERS.find((a) => a.id === 'codex').args.includes('--full-auto'));
 assert.ok(compatibleArgs(CLI_ADAPTERS.find((a) => a.id === 'gemini'), '--output-format --skip-trust --approval-mode').includes('--skip-trust'));
 const script = path.join(root, 'fake-cli.cjs');

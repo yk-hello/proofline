@@ -469,7 +469,9 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .version-entry small { color: var(--secondary); font: 12px var(--mono); }
 .version-confirm { margin-top: 16px; }
 
-.agent-groups { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 22px 16px; }
+.agent-groups { flex: 1 0 auto; padding: 8px 22px 16px; }
+/* The whole dialog scrolls when it is taller than the window; the actions stay in reach. */
+.send-dialog .dialog-actions { position: sticky; bottom: 0; z-index: 1; background: var(--paper); }
 .agent-group h3 { display: flex; align-items: center; gap: 8px; margin: 16px 0 10px; color: var(--faint); font: 500 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
 .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .agent-option { position: relative; display: grid; gap: 2px; min-height: 58px; padding: 10px 12px; border: 1.5px solid var(--line); background: var(--paper); text-align: left; }
@@ -489,6 +491,18 @@ kbd { display: inline-flex; align-items: center; padding: 1px 5px; border: 1px s
 .scope-picker input { accent-color: var(--red); margin-top: 3px; }
 .scope-picker span { display: grid; gap: 4px; }
 .scope-picker small { color: var(--secondary); line-height: 1.6; }
+.conversation-picker > .agent-note, .conversation-picker > .conversation-list, .conversation-picker > .settings-error { grid-column: 1 / -1; margin: 0; }
+.conversation-list { display: grid; gap: 6px; max-height: 232px; overflow-y: auto; }
+.conversation-option { display: grid; gap: 3px; min-width: 0; padding: 9px 12px; border: 1.5px solid var(--line); background: var(--paper); color: var(--ink); text-align: left; }
+.conversation-option:hover { background: var(--hover); }
+.conversation-option.selected { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--red); }
+.conversation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.conversation-meta { color: var(--faint); font: 12px var(--mono); }
+.conversation-picker > .conversation-search { grid-column: 1 / -1; height: 34px; padding: 0 10px; border: 1.5px solid var(--line); background: var(--paper); color: var(--ink); font: 13px var(--ui-font); }
+.conversation-picker > .conversation-search:focus { border-color: var(--ink); outline: none; }
+.conversation-group { margin-top: 6px; color: var(--faint); font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.conversation-group:first-child { margin-top: 0; }
+.conversation-group.here { color: var(--red-text); }
 .paste-dialog textarea { flex: 1; min-height: 300px; margin: 16px 22px; padding: 14px; border: 1.5px solid var(--ink); outline: 0; resize: vertical; font: 13px/1.65 var(--mono); }
 .settings-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 22px 18px; }
 .settings-body h3 { margin: 18px 0 10px; color: var(--faint); font: 500 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; }

@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('mengxDesktop', {
     detect: (overrides, refresh = false) => ipcRenderer.invoke('redline:agents', 'detect', overrides, refresh),
     probe: (options) => ipcRenderer.invoke('redline:agents', 'probe', options),
     run: (options) => ipcRenderer.invoke('redline:agents', 'run', options),
+    conversations: (adapterId) => ipcRenderer.invoke('redline:agents', 'conversations', adapterId),
     cancel: (id) => ipcRenderer.invoke('redline:agents', 'cancel', id),
     login: (id, overrides) => ipcRenderer.invoke('redline:agents', 'login', id, overrides),
     history: () => ipcRenderer.invoke('redline:agents', 'history'),

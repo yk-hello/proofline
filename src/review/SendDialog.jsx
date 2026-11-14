@@ -5,7 +5,16 @@ import { customAgents, readAgentSettings, writeAgentSettings } from './agents';
 
 const GROUP_ICONS = { cli: Terminal, custom: Wrench };
 
-export default function SendDialog({ language, taskCount, canRunLocal, onClose, onStart, onSettings, onSaveAs = null, hidden = [], quick = false, mixedScope = false }) {
+// Folder paths compared without case or slash differences.
+const folderKey = (value) => String(value || '').replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+/** Does the conversation's folder hold the document, or sit inside the document's folder? Then it is the same project. */
+const sameProject = (conversationFolder, documentFolder) => {
+  const a = folderKey(conversationFolder), b = folderKey(documentFolder);
+  return Boolean(a && b) && (a === b || b.startsWith(a + '/') || a.startsWith(b + '/'));
+};
+const lastParts = (folder, count = 2) => String(folder || '').split(/[\\/]/).filter(Boolean).slice(-count).join('/');
+
+export default function SendDialog({ language, documentPath = '', taskCount, canRunLocal, onClose, onStart, onSettings, onSaveAs = null, hidden = [], quick = false, mixedScope = false }) {
   const [settings, setSettings] = useState(readAgentSettings);
   const [detected, setDetected] = useState(null);
   const [selected, setSelected] = useState(settings.lastAgent);
@@ -59,14 +68,44 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
     else setQuickPending(false);
   }, [quickPending, detected]);
 
+  // Codex only: send the task into a conversation the user already had with it, instead of a new one.
+  // A new conversation stays the default every time; continuing is a choice made in this dialog.
+  const canContinue = agent?.id === 'codex' && Boolean(bridge?.conversations);
+  const [continuing, setContinuing] = useState(false);
+  const [conversations, setConversations] = useState(null);
+  const [conversationId, setConversationId] = useState('');
+  useEffect(() => {
+    if (!canContinue || !continuing || conversations) return;
+    bridge.conversations('codex').then((list) => { setConversations(list); setConversationId((current) => current || list.find((item) => !item.active && sameProject(item.folder, documentPath.replace(/[\\/][^\\/]*$/, '')))?.id || ''); })
+      .catch((error) => { setConversations([]); setError(error.message); });
+  }, [canContinue, continuing, conversations]);
+  const conversation = canContinue && continuing ? (conversations || []).find((item) => item.id === conversationId) || null : null;
+  // Conversations from this document's project first, then the rest by folder; a search narrows both.
+  const [conversationQuery, setConversationQuery] = useState('');
+  const documentFolder = documentPath.replace(/[\\/][^\\/]*$/, '');
+  const conversationGroups = useMemo(() => {
+    const query = conversationQuery.trim().toLowerCase();
+    const shown = (conversations || []).filter((item) => !query || `${item.title} ${item.folder}`.toLowerCase().includes(query));
+    const here = shown.filter((item) => sameProject(item.folder, documentFolder));
+    const groups = here.length ? [{ key: 'here', here: true, folder: documentFolder, items: here }] : [];
+    for (const item of shown.filter((entry) => !here.includes(entry))) {
+      const key = folderKey(item.folder);
+      let group = groups.find((entry) => !entry.here && entry.key === key);
+      if (!group) groups.push(group = { key, here: false, folder: item.folder, items: [] });
+      group.items.push(item);
+    }
+    return groups;
+  }, [conversations, conversationQuery, documentFolder]);
+  const when = (time) => new Date(time).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
   const localKind = agent && ['cli', 'custom'].includes(agent.kind);
-  const blocked = !agent || (localKind && !canRunLocal) || agent.auth === 'required' || agent.compatibility?.ok === false;
+  const blocked = !agent || (localKind && !canRunLocal) || agent.auth === 'required' || agent.compatibility?.ok === false || (canContinue && continuing && !conversation);
 
   async function start() {
     if (blocked) return;
     try {
       const next = await writeAgentSettings({ ...settings, lastAgent: agent.id, lastScope: scope });
-      setSettings(next); onStart({ agent, scope: localKind ? scope : 'file', note });
+      setSettings(next); onStart({ agent, scope: localKind ? scope : 'file', note, conversation });
     } catch (error) { setError(error.message); }
   }
 
@@ -122,6 +161,35 @@ export default function SendDialog({ language, taskCount, canRunLocal, onClose, 
           <input type="radio" name="scope" value={value} checked={scope === value} onChange={() => setScope(value)} />
           <span><strong>{t(language, value === 'file' ? 'scopeFile' : 'scopeFolder')}</strong><small>{t(language, value === 'file' ? 'scopeFileHint' : 'scopeFolderHint')}</small></span>
         </label>)}
+      </fieldset>}
+      {canContinue && <fieldset className="scope-picker conversation-picker">
+        <legend>{language === 'zh' ? '对话' : 'Conversation'}</legend>
+        <label className={!continuing ? 'selected' : ''}>
+          <input type="radio" name="conversation" checked={!continuing} onChange={() => setContinuing(false)} />
+          <span><strong>{language === 'zh' ? '新对话' : 'A new conversation'}</strong><small>{language === 'zh' ? '最稳妥。AI 只看这次的任务和文档。' : 'The safest. The AI sees only this task and the document.'}</small></span>
+        </label>
+        <label className={continuing ? 'selected' : ''}>
+          <input type="radio" name="conversation" checked={continuing} onChange={() => setContinuing(true)} />
+          <span><strong>{language === 'zh' ? '接着之前的 Codex 对话' : 'Continue an earlier Codex conversation'}</strong><small>{language === 'zh' ? 'AI 记得那次聊过的内容。任务照样只改副本，改动照样逐处让你审。' : 'The AI remembers what you discussed there. It still edits a copy, and you still review every change.'}</small></span>
+        </label>
+        {continuing && (conversations === null ? <p className="agent-note">{language === 'zh' ? '正在读取 Codex 的对话…' : 'Reading your Codex conversations…'}</p>
+          : !conversations.length ? <p className="agent-note">{language === 'zh' ? '没找到可以接着的 Codex 对话。先在 Codex 里聊过，这里才会列出来。' : 'No Codex conversation to continue yet. Conversations you have in Codex show up here.'}</p>
+          : <>
+            {conversations.length > 5 && <input className="conversation-search" type="search" value={conversationQuery} onChange={(event) => setConversationQuery(event.target.value)}
+              placeholder={language === 'zh' ? '按标题或文件夹查找' : 'Find by title or folder'} aria-label={language === 'zh' ? '查找对话' : 'Find a conversation'} />}
+            <div className="conversation-list" role="radiogroup" aria-label={language === 'zh' ? '选择对话' : 'Choose a conversation'}>
+              {!conversationGroups.length && <p className="agent-note">{language === 'zh' ? '没有符合的对话。' : 'No conversation matches.'}</p>}
+              {conversationGroups.map((group) => <React.Fragment key={group.key}>
+                <div className={`conversation-group ${group.here ? 'here' : ''}`} title={group.folder}>{group.here ? (language === 'zh' ? '这个项目' : 'This project') : (lastParts(group.folder) || (language === 'zh' ? '未知文件夹' : 'Unknown folder'))}</div>
+                {group.items.map((item) => <button key={item.id} role="radio" aria-checked={conversationId === item.id} title={item.folder} className={`conversation-option ${conversationId === item.id ? 'selected' : ''}`} onClick={() => setConversationId(item.id)}>
+                  <span className="conversation-title">{item.title || (language === 'zh' ? '（无标题）' : '(untitled)')}</span>
+                  <span className="conversation-meta">{when(item.updatedAt)}{item.folder ? ` · ${lastParts(item.folder)}` : ''}{item.active ? (language === 'zh' ? ' · 刚刚还在用' : ' · in use just now') : ''}</span>
+                </button>)}
+              </React.Fragment>)}
+            </div>
+          </>)}
+        {continuing && conversations?.length > 0 && !conversation && <p className="agent-note">{language === 'zh' ? '选一个对话再开始。这个项目里还没有对话时，不会替你默认选别的项目。' : 'Choose a conversation to start. When this project has none, none from another project is chosen for you.'}</p>}
+        {conversation?.active && <p className="settings-error" role="alert">{language === 'zh' ? '这个对话两分钟内还有动静，可能还开在 Codex 里。先在那边停下来再发，否则两边会同时往一个对话里写。' : 'This conversation changed in the last two minutes and may still be open in Codex. Stop it there first, or both sides will write into it at once.'}</p>}
       </fieldset>}
       {mixedScope && <div className="send-hidden" role="note">
         <strong>{language === 'zh' ? '这一轮里有一条全文指令' : 'This round includes a whole-document instruction'}</strong>

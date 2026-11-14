@@ -329,7 +329,11 @@ function diagnose(output, { timedOut = false, code = null, spawnError = false } 
 
 function readableOutput(output) {
   return output.split(/\r?\n/).map((line) => {
-    try { const event = JSON.parse(line); if (event.type === 'item.completed' && event.item?.type === 'agent_message') return event.item.text || '';
+    try { const event = JSON.parse(line);
+      // Only a CLI event (an object with a type) is unpacked. A plain answer that happens to be
+      // valid JSON, such as "314159", "true" or {"total": 3}, is kept as it was written.
+      if (!event || typeof event !== 'object' || typeof event.type !== 'string') return line;
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message') return event.item.text || '';
       if (event.type === 'message') return event.role === 'assistant' ? event.content || event.message?.content || '' : '';
       if (event.type === 'result') return typeof event.result === 'string' ? event.result : '';
       if (event.type === 'error' || event.type === 'turn.failed') return event.message || event.error?.message || line; return '';
@@ -357,6 +361,86 @@ function connectionResult(result) {
   // What the CLI said, so a refusal from the service (not one of the known causes) can be read.
   const said = readableOutput(output).split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !/^\{/.test(line)).slice(-2).join(' ').slice(0, 240);
   return { ok: false, ...diagnostic, message: diagnostic?.message || '未收到测试响应', messages: diagnostic?.messages || { zh: '未收到测试响应' + (said ? '。CLI 输出：' + said : ''), en: 'No answer to the connection test' + (said ? '. The CLI said: ' + said : '.') }, checkedAt: Date.now() };
+}
+
+// ---- Continuing a Codex conversation -------------------------------------------------------
+// Codex keeps each conversation as a file, sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl, and the
+// titles it shows in session_index.jsonl. Stetwise only reads them, to offer a list; the conversation
+// itself is continued by Codex (`codex exec resume <id>`), never by editing these files.
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const codexHome = (env = process.env) => env.CODEX_HOME || path.join(os.homedir(), '.codex');
+
+async function codexConversationFiles(home) {
+  const found = [], walk = async (dir, depth) => {
+    let entries; try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory() && depth < 4) await walk(full, depth + 1);
+      else if (entry.isFile()) { const match = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(entry.name); if (match) found.push({ id: match[1].toLowerCase(), file: full }); }
+    }
+  };
+  await walk(path.join(home, 'sessions'), 0);
+  return found;
+}
+
+/** The start of a conversation file: its metadata line and the first thing the person asked. */
+async function readConversationStart(file) {
+  let text = '';
+  const handle = await fs.open(file, 'r');
+  try { const buffer = Buffer.alloc(262144); const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0); text = buffer.subarray(0, bytesRead).toString('utf8'); } finally { await handle.close(); }
+  let meta = null, asked = '';
+  for (const line of text.split('\n')) {
+    let event; try { event = JSON.parse(line); } catch { continue; }
+    if (!event || typeof event !== 'object') continue;
+    if (!meta && event.type === 'session_meta') meta = event.payload || {};
+    if (!asked && event.type === 'event_msg' && event.payload?.type === 'user_message' && typeof event.payload.message === 'string') asked = event.payload.message;
+    // `codex exec` records the person's words only as a user message item, after the <environment_context> one.
+    if (!asked && event.type === 'response_item' && event.payload?.type === 'message' && event.payload.role === 'user' && Array.isArray(event.payload.content)) {
+      const text = event.payload.content.filter((part) => typeof part?.text === 'string').map((part) => part.text).join(' ').trim();
+      if (text && !text.startsWith('<')) asked = text;
+    }
+    if (meta && asked) break;
+  }
+  return { meta: meta || {}, asked };
+}
+
+/** A run Stetwise itself started: a review task, a connection test, or one of its working folders. */
+// Earlier versions were called Redline and Proofline (and MengX inside), so their runs are recognised too.
+const stetwiseRun = (start) => /\.(?:stetwise|proofline|redline|mengx)[\\/]TASK|(?:STETWISE|PROOFLINE|REDLINE|MENGX)_READY|comes from Stetwise|^Read task file |^#\s*(?:Stetwise|Proofline|Redline) (?:revision|review) task/i.test(start.asked || '')
+  || /[\\/](?:Stetwise|Proofline|Redline|MengX)Data[\\/]work[\\/]|[\\/](?:stetwise|proofline|redline|mengx)-[^\\/]*$/i.test(start.meta.cwd || '');
+
+/**
+ * Recent Codex conversations a task could be sent into, newest first. Runs Stetwise started itself
+ * are left out; conversations people had, in the app, the terminal or with `codex exec`, are kept.
+ */
+async function codexConversations({ home = codexHome(), limit = 60, now = Date.now() } = {}) {
+  const names = new Map();
+  try {
+    for (const line of (await fs.readFile(path.join(home, 'session_index.jsonl'), 'utf8')).split('\n')) {
+      try { const item = JSON.parse(line); if (item && CONVERSATION_ID.test(item.id || '') && item.thread_name) names.set(item.id.toLowerCase(), String(item.thread_name)); } catch { /* skip */ }
+    }
+  } catch { /* no titles yet */ }
+  const files = await codexConversationFiles(home);
+  const dated = [];
+  for (const item of files) { try { dated.push({ ...item, mtime: (await fs.stat(item.file)).mtimeMs }); } catch { /* gone */ } }
+  dated.sort((a, b) => b.mtime - a.mtime);
+  const list = [];
+  for (const item of dated) {
+    if (list.length >= limit) break;
+    let start; try { start = await readConversationStart(item.file); } catch { continue; }
+    if (stetwiseRun(start)) continue;
+    const title = (names.get(item.id) || start.asked || '').replace(/\s+/g, ' ').trim();
+    list.push({ id: item.id, title: title.slice(0, 120), folder: typeof start.meta.cwd === 'string' ? start.meta.cwd : '', updatedAt: item.mtime,
+      // Written to in the last two minutes: it may still be open somewhere, and two writers would interleave.
+      active: now - item.mtime < 120000 });
+  }
+  return list;
+}
+
+/** The command that sends a task into an existing Codex conversation. Writing stays inside the working folder. */
+function codexResumeArgs(id) {
+  if (!CONVERSATION_ID.test(String(id))) throw new Error('Not a Codex conversation id');
+  return ['exec', 'resume', '--skip-git-repo-check', '--json', '-c', 'sandbox_mode="workspace-write"', String(id).toLowerCase(), '{prompt}'];
 }
 
 function quoteWindows(value) {
@@ -402,7 +486,8 @@ class AgentRunner {
     try { return await this.start(options); } finally { this.starting = false; }
   }
 
-  async start({ adapterId, documentPath, scope = 'file', task, tasks = [], copyText = null, anchors = null, custom, overrides = {}, timeoutMinutes = 30 }) {
+  async start({ adapterId, documentPath, scope = 'file', task, tasks = [], copyText = null, anchors = null, custom, overrides = {}, timeoutMinutes = 30, resume = null }) {
+    if (resume && (custom || adapterId !== 'codex')) throw new Error('Only Codex conversations can be continued');
     const adapter = CLI_ADAPTERS.find((item) => item.id === adapterId);
     let executable, args;
     if (custom) {
@@ -419,6 +504,12 @@ class AgentRunner {
       if (detected.auth === 'required') throw Object.assign(new Error(adapter.name + ' 尚未登录。请先打开终端登录，然后重新检测。 / ' + adapter.name + ' is not signed in. Open the sign-in terminal, then detect again.'), { code: 'login-required' });
       executable = detected.path;
       args = splitTemplate(overrides[adapter.id]?.args || detected.args);
+      if (resume) {
+        // Only a conversation Codex itself has on file, and one listed to the user, can be continued.
+        const known = (await codexConversations({ limit: 200 })).find((item) => item.id === String(resume).toLowerCase());
+        if (!known) throw new Error('That Codex conversation was not found. / 找不到这个 Codex 对话。');
+        args = codexResumeArgs(known.id);
+      }
     }
     const id = randomUUID(), name = path.basename(documentPath);
     const original = (await fs.readFile(documentPath, 'utf8')).replace(/^\uFEFF/, '');
@@ -447,11 +538,15 @@ class AgentRunner {
     const values = { prompt: 'Read the file ' + relativeTask + ' in the current directory. First read the whole document it names, then carry out every instruction in it, edit that document directly, and reply in the format it asks for.', task: taskFile, file, dir: cwd };
     const hermes = path.basename(executable).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, '') === 'hermes';
     if (hermes) values.prompt = `Read task file ${JSON.stringify(taskFile)}. The document to edit is ${JSON.stringify(file)}. Use these absolute paths and follow every task instruction; edit only that document.`;
+    // In a continued conversation the earlier talk stays as background, but this message is a
+    // Stetwise task: it names its files by full path, since the working folder is not the one the
+    // conversation began in, and its rules apply to this turn.
+    if (resume) values.prompt = `This message comes from Stetwise, a document review app, on the user's behalf. Use what you know from this conversation as background. Read the task file ${JSON.stringify(taskFile)}, then the document it names, ${JSON.stringify(file)}. Follow every rule in the task for this turn: edit only that document, and reply in the format it asks for.`;
     args = args.map((arg) => arg.replace(/\{(prompt|task|file|dir)\}/g, (_, key) => values[key]));
     const env = await envWithPath({ ...(await adapterEnvironment(adapterId, executable)), FORCE_COLOR: '0', NO_COLOR: '1', CI: '1',
       ...(hermes ? { TERMINAL_CWD: cwd } : {}) });
     if (scope !== 'folder') { try { await fs.cp(documentPath + '.assets', file + '.assets', { recursive: true, dereference: false, force: false }); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
-    const record = { id, output: '', cwd, file, scope, cleanup, documentPath, base: original, task, tasks, anchors: anchored ? anchors : null, adapterId,
+    const record = { id, output: '', cwd, file, scope, cleanup, documentPath, base: original, task, tasks, anchors: anchored ? anchors : null, adapterId, ...(resume ? { conversation: String(resume).toLowerCase() } : {}),
       agentName: adapter?.name || custom?.name || 'Custom', executable, args, startedAt: Date.now(), lastOutputAt: null, status: 'starting', cancelled: false };
     await this.persist(record);
     let child;
@@ -535,4 +630,4 @@ async function runCommand(executable, args, { timeout = 20000, cwd } = {}) {
   });
 }
 
-module.exports = { codexOwnProvider, bundledClaudeCode, runCommand, which, AgentRunner, detect, diagnose, readableOutput, responseReady, connectionResult, compatibleArgs, validateArgs, helpFlags, connectionArgs, parseEnvironment, redactOutput, openInIde, CLI_ADAPTERS, IDE_ADAPTERS, SHORT_PROMPT, splitTemplate, launch };
+module.exports = { codexConversations, codexResumeArgs, codexHome, codexOwnProvider, bundledClaudeCode, runCommand, which, AgentRunner, detect, diagnose, readableOutput, responseReady, connectionResult, compatibleArgs, validateArgs, helpFlags, connectionArgs, parseEnvironment, redactOutput, openInIde, CLI_ADAPTERS, IDE_ADAPTERS, SHORT_PROMPT, splitTemplate, launch };

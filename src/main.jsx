@@ -3136,7 +3136,7 @@ function App() {
     return Boolean(window.mengxDesktop?.agents && handle?.desktop && ['MD', 'TXT'].includes(activeDocumentRef.current.kind));
   }
 
-  async function startAgent({ agent, scope, note = '', quick = false }) {
+  async function startAgent({ agent, scope, note = '', quick = false, conversation = null }) {
     const onlyIds = sendOpen?.onlyIds || null;
     setSendOpen(false);
     if (quick) setNotice(language === 'zh' ? `已交给 ${agent.name}（${scope === 'folder' ? '文档所在文件夹' : '只改这篇文档'}）。要换 AI 或范围，点发送按钮旁边的选项。` : `Sent to ${agent.name} (${scope === 'folder' ? 'the document folder' : 'this document only'}). To change the AI or scope, use the options button next to Send.`);
@@ -3158,7 +3158,8 @@ function App() {
       agentRunRef.current = run; setAgentRun(run); markSent(tasks, agent, key);
       const result = await bridge.run({ adapterId: agent.kind === 'custom' ? null : agent.id, documentId: handle.id, scope, task: prompt, tasks,
         copyText: run.anchors ? anchors.text : null, anchors: run.anchors?.anchors || null,
-        custom: agent.kind === 'custom' ? { template: agent.template, name: agent.name } : null, overrides: settings.overrides, timeoutMinutes: settings.timeoutMinutes });
+        custom: agent.kind === 'custom' ? { template: agent.template, name: agent.name } : null, overrides: settings.overrides, timeoutMinutes: settings.timeoutMinutes,
+        resume: agent.id === 'codex' && conversation?.id ? conversation.id : null });
       if (agentRunRef.current === run || agentRunRef.current?.id === result.id) {
         run.id = result.id; run.pid = result.pid;
         if (run.anchors && !result.anchored) run.anchors = null;
@@ -4306,7 +4307,7 @@ ${copy.addressPlaceholder}`}>{shortPath(fileMeta.source)}</button>
         </div>
       </div></div>}
       {paletteOpen && <CommandPalette language={language} onClose={() => setPaletteOpen(false)} commands={paletteCommands()} />}
-      {sendOpen && <SendDialog language={language} onSaveAs={window.mengxDesktop && !canRunLocalAgent() ? () => void saveAsMarkdownAndSend() : null} taskCount={tasksToSend(sendOpen?.onlyIds).length} quick={Boolean(sendOpen?.quick)} mixedScope={((tasks) => tasks.some((task) => task.scope === 'document') && tasks.some((task) => task.scope !== 'document'))(tasksToSend(sendOpen?.onlyIds))} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
+      {sendOpen && <SendDialog language={language} documentPath={fileHandlesRef.current.get(activeDocumentRef.current.key)?.path || ''} onSaveAs={window.mengxDesktop && !canRunLocalAgent() ? () => void saveAsMarkdownAndSend() : null} taskCount={tasksToSend(sendOpen?.onlyIds).length} quick={Boolean(sendOpen?.quick)} mixedScope={((tasks) => tasks.some((task) => task.scope === 'document') && tasks.some((task) => task.scope !== 'document'))(tasksToSend(sendOpen?.onlyIds))} canRunLocal={canRunLocalAgent()} hidden={hiddenContent(getDocumentSource())} onClose={() => setSendOpen(false)} onStart={(options) => void startAgent(options)} onSettings={() => { setSendOpen(false); setAgentSettingsOpen(true); }} />}
       {setupOpen && <SetupWizard language={language} platform={platform} onClose={closeSetup} />}
       {manualTransfer && <ManualTransfer language={language} onClose={() => setManualTransfer(null)} onPackage={() => transferPackage()} onImport={(text) => importTransfer(text, true)} />}
       {agentSettingsOpen && <AgentSettings language={language} onClose={() => setAgentSettingsOpen(false)} onNotice={setNotice} onRecover={recoverAgentRun} />}

@@ -276,8 +276,11 @@ else {
         const record = await files.get(options.documentId, 'file');
         if (!/\.(md|markdown|mdown|mkd|txt)$/i.test(record.path)) throw new Error('Only Markdown and text documents can be edited by an agent');
         return agents.run({ adapterId: options.adapterId, documentPath: record.path, scope: options.scope === 'folder' ? 'folder' : 'file',
-          task: String(options.task || ''), tasks: options.tasks || [], copyText: typeof options.copyText === 'string' ? options.copyText : null, anchors: Array.isArray(options.anchors) ? options.anchors : null, custom: options.custom || null, overrides: options.overrides || {}, timeoutMinutes: options.timeoutMinutes });
+          task: String(options.task || ''), tasks: options.tasks || [], copyText: typeof options.copyText === 'string' ? options.copyText : null, anchors: Array.isArray(options.anchors) ? options.anchors : null, custom: options.custom || null, overrides: options.overrides || {}, timeoutMinutes: options.timeoutMinutes,
+          resume: typeof options.resume === 'string' && options.resume ? options.resume : null });
       }
+      // Recent conversations a task can be sent into. Only Codex can continue one from outside.
+      if (operation === 'conversations') return String(parameters[0]) === 'codex' ? require('./agents.cjs').codexConversations() : [];
       if (operation === 'history') return (await dataStore.list('runs')).slice(0, 30).map((run) => ({ id: run.id, documentPath: run.documentPath, agentName: run.agentName, startedAt: run.startedAt, status: agents.runs.has(run.id) ? 'running' : ['running', 'starting'].includes(run.status) ? 'interrupted' : run.status, diagnostic: run.diagnostic }));
       if (operation === 'recover') {
         const run = await dataStore.read('runs', String(parameters[0]));
